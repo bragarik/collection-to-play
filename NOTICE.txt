@@ -1,0 +1,22 @@
+Collection to Play
+Copyright (C) 2026 Ricardo (bragarik)
+https://github.com/bragarik/collection-to-play
+
+Este programa é software livre, distribuído sob a GNU General Public License,
+versão 3. Consulte LICENSE para o texto completo e as condições de distribuição.
+
+Este programa é distribuído sem garantia, inclusive sem garantia implícita de
+comercialização ou adequação a uma finalidade específica.
+
+Libib e Spotify são serviços de terceiros. Seus nomes e marcas pertencem aos
+respectivos titulares. Este projeto é independente e não representa esses serviços.
+
+O ícone src/spotify-icon.svg foi obtido do pacote oficial Spotify Icon
+(Primary_Logo_Black_RGB.svg), preservado sem alterações. É um recurso de marca
+do Spotify; sua utilização segue as diretrizes oficiais da marca:
+https://developer.spotify.com/documentation/design
+Origem: https://developer.spotify.com/images/guidelines/design/2024-spotify-logo-icon.zip
+
+O ícone src/youtube-music-icon.png é o favicon original do YouTube Music,
+preservado sem alterações. A marca pertence ao respectivo titular.
+Origem: https://music.youtube.com/img/favicon_144.png

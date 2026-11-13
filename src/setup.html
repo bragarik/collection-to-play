@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Collection to Play — Configuração</title>
+    <style>
+      :root { color-scheme: light; font: 15px/1.5 system-ui, sans-serif; color: #03151e; background: #ffffff; }
+      * { box-sizing: border-box; }
+      body { width: 410px; max-width: 100%; min-width: 320px; min-height: 600px; margin: 0 auto; padding: 24px; }
+      body.full-page { width: 960px; min-height: 100vh; padding: 32px; }
+      .full-page #open-full-page { display: none; }
+      #open-full-page { display: inline-block; margin-bottom: 8px; font-size: 13px; }
+      @media (min-width: 700px) { .full-page #choices-dialog { width: 760px; max-height: 90vh; } }
+      h1 { margin: 0; font-size: 24px; letter-spacing: -.6px; }
+      h2 { margin: 24px 0 8px; font-size: 18px; }
+      p { margin: 8px 0 16px; }
+      .status { color: #0096b5; font-size: 13px; }
+      label { display: block; margin: 16px 0 6px; font-weight: 600; }
+      input, textarea, select { width: 100%; padding: 10px; border: 1px solid #dedede; border-radius: 7px; background: white; color: inherit; font: 12px/1.5 ui-monospace, monospace; }
+      textarea { resize: vertical; min-height: 76px; }
+      button { width: 100%; margin-top: 8px; padding: 11px; border: 0; border-radius: 7px; background: #4bc1d2; color: white; font: inherit; font-weight: 600; cursor: pointer; }
+      button:disabled { cursor: wait; opacity: .5; }
+      button:hover:not(:disabled) { background: #0096b5; }
+      :focus-visible { outline: 3px solid #0096b5; outline-offset: 3px; }
+      a { color: #0096b5; }
+      .note { font-size: 13px; color: #666666; }
+      #feedback { min-height: 1.5em; margin: 8px 0; font-size: 13px; }
+      footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid #dedede; }
+      footer a { display: inline-block; margin-bottom: 8px; }
+      details { margin-top: 24px; padding-top: 16px; border-top: 1px solid #dedede; }
+      summary { cursor: pointer; color: #0096b5; font-weight: 600; }
+      #results { padding-left: 20px; }
+      #results li { margin-bottom: 12px; overflow-wrap: anywhere; }
+      #connection-status, #search-feedback { overflow-wrap: anywhere; }
+      #remembered-list { list-style: none; padding: 0; }
+      .remembered-choice { padding: 14px; margin-bottom: 10px; border: 1px solid #dedede; border-radius: 10px; background: white; overflow-wrap: anywhere; }
+      .remembered-choice h3 { margin: 0 0 5px; font-size: 15px; }
+      .remembered-choice p { margin: 4px 0; font-size: 13px; }
+      .remembered-choice button { color: #03151e; background: #efefef; border: 1px solid #dedede; }
+      .remembered-choice button:hover:not(:disabled) { background: #dedede; }
+      #preference-feedback, #choices-feedback { font-size: 13px; min-height: 1.5em; }
+      #spotify-heading { display: flex; align-items: center; gap: 8px; }
+      #youtube-connection { display: flex; align-items: center; gap: 8px; }
+      .spotify-icon { width: 24px; height: 24px; flex-shrink: 0; object-fit: contain; }
+      #choices-dialog { width: min(540px, calc(100vw - 24px)); max-height: 85vh; padding: 0; border: 1px solid #dedede; border-radius: 12px; color: inherit; background: white; box-shadow: 0 12px 40px #03151e33; }
+      #choices-dialog::backdrop { background: #03151e66; }
+      .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #dedede; background: white; position: sticky; top: 0; }
+      .dialog-header h2 { margin: 0; }
+      .dialog-header button { width: 36px; height: 36px; margin: 0; padding: 0; flex-shrink: 0; background: #efefef; color: #03151e; font-size: 24px; }
+      .dialog-header button:hover { background: #dedede; }
+      .dialog-content { padding: 0 20px 12px; }
+      .choices-pagination { display: flex; align-items: center; gap: 8px; position: sticky; bottom: 0; padding: 12px 0; background: white; border-top: 1px solid #dedede; }
+      .choices-pagination button { width: auto; margin: 0; padding: 8px 12px; }
+      #choices-page { flex: 1; text-align: center; font-size: 12px; }
+      [hidden] { display: none !important; }
+    </style>
+    <script type="module" src="setup.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>Collection to Play</h1>
+      <a id="open-full-page" href="setup.html?view=full" target="_blank" rel="noopener">Abrir em tela inteira ↗</a>
+      <p id="status" class="status" role="status">Carregando configuração…</p>
+    </header>
+    <main>
+      <h2>Seu streaming</h2>
+      <p id="first-use" class="note">Escolha o serviço que deseja usar. Nenhum streaming foi selecionado automaticamente.</p>
+      <form id="streaming-settings">
+        <label for="preferred-streaming">Streaming</label>
+        <select id="preferred-streaming" required><option value="">Escolha um streaming</option></select>
+        <button id="save-streaming" type="submit">Salvar preferência</button>
+      </form>
+      <p id="preference-feedback" role="status" aria-live="polite"></p>
+      <section id="spotify-connection">
+      <h2 id="spotify-heading">Conectar sua conta</h2>
+      <p id="connection-status" role="status">Verificando conexão…</p>
+      <p class="note">O login é feito na janela oficial do Spotify. Sua senha fica com o Spotify.</p>
+      <button id="connect-spotify" type="button" disabled>Conectar Spotify</button>
+      <button id="disconnect-spotify" type="button" hidden>Desconectar Spotify</button>
+      <p id="feedback" role="status" aria-live="polite"></p>
+
+      </section>
+      <p id="youtube-connection" class="note" hidden>YouTube Music: a busca de álbuns dispensa login. Os álbuns abrem pelo navegador.</p>
+      <button id="open-choices" type="button" aria-haspopup="dialog" aria-controls="choices-dialog">Escolhas salvas</button>
+      <dialog id="choices-dialog" aria-labelledby="choices-title">
+      <div class="dialog-header">
+        <h2 id="choices-title">Escolhas salvas</h2>
+        <button id="close-choices" type="button" aria-label="Fechar escolhas salvas">×</button>
+      </div>
+      <div class="dialog-content">
+      <label for="remembered-search">Buscar nas escolhas</label>
+      <input id="remembered-search" type="search" placeholder="Álbum, artista ou código" autocomplete="off">
+      <p id="choices-count" class="note" role="status"></p>
+      <ul id="remembered-list"></ul>
+      <nav id="choices-pagination" class="choices-pagination" aria-label="Páginas de escolhas salvas" hidden>
+        <button id="choices-previous" type="button">Anterior</button>
+        <span id="choices-page" role="status" aria-live="polite"></span>
+        <button id="choices-next" type="button">Próxima</button>
+      </nav>
+      <p id="choices-feedback" role="status" aria-live="polite"></p>
+      </div>
+      </dialog>
+      <details id="search-diagnostics">
+      <summary>Diagnóstico de busca</summary>
+      <h2>Testar busca de álbum</h2>
+      <form id="album-search">
+        <label for="album-title">Álbum</label>
+        <input id="album-title" placeholder="Ex.: Discovery" required maxlength="200" autocomplete="off">
+        <label for="album-artist">Artista (opcional)</label>
+        <input id="album-artist" placeholder="Ex.: Daft Punk" maxlength="200" autocomplete="off">
+        <label for="album-code">UPC/EAN (opcional)</label>
+        <input id="album-code" placeholder="Código de barras com 12 ou 13 dígitos" maxlength="24" inputmode="numeric" autocomplete="off" aria-describedby="code-help">
+        <p id="code-help" class="note">Se disponível no Libib, o código será tentado antes do título e artista. Preserve os zeros à esquerda.</p>
+        <button id="search-albums" type="submit" disabled>Buscar no Spotify</button>
+      </form>
+      <p id="search-feedback" role="status" aria-live="polite"></p>
+      <ul id="results"></ul>
+      <button id="load-more" type="button" hidden>Carregar mais resultados</button>
+      <button id="export-search-log" type="button">Exportar log da busca</button>
+      <p id="export-feedback" class="note" role="status"></p>
+      <p class="note">Esta busca é para diagnóstico. Para escolher e lembrar um álbum da coleção, use o botão no próprio Libib.</p>
+
+      </details>
+
+      <details>
+      <summary>Dados do aplicativo e endereço de retorno</summary>
+      <p class="note">O Client ID identifica Collection to Play, não sua conta. Em Settings no Spotify, Redirect URIs deve conter exatamente o endereço abaixo.</p>
+
+      <label for="client-id">Client ID do Spotify</label>
+      <input id="client-id" readonly spellcheck="false" autocomplete="off">
+
+      <label for="redirect-url">Redirect URI</label>
+      <textarea id="redirect-url" readonly spellcheck="false" rows="3"></textarea>
+      <button id="copy-redirect" type="button" disabled>Copiar endereço de retorno</button>
+
+      <label for="extension-id">ID da extensão</label>
+      <input id="extension-id" readonly spellcheck="false" autocomplete="off">
+
+      </details>
+    </main>
+    <footer>
+      <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer">Abrir Spotify Developer Dashboard</a><br>
+      <a id="open-library" href="https://www.libib.com/library" target="_blank" rel="noopener noreferrer">Abrir biblioteca no Libib</a>
+    </footer>
+  </body>
+</html>

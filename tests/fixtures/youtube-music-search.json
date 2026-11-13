@@ -1,0 +1,284 @@
+{
+  "contents": {
+    "sectionListRenderer": {
+      "contents": [
+        {
+          "musicShelfRenderer": {
+            "contents": [
+              {
+                "musicResponsiveListItemRenderer": {
+                  "navigationEndpoint": {
+                    "browseEndpoint": {
+                      "browseId": "MPREb_7ltM34kr0mH",
+                      "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {
+                          "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                        }
+                      }
+                    }
+                  },
+                  "flexColumns": [
+                    {
+                      "musicResponsiveListItemFlexColumnRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Discovery"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "musicResponsiveListItemFlexColumnRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Album"
+                            },
+                            {
+                              "text": " • "
+                            },
+                            {
+                              "text": "Daft Punk",
+                              "navigationEndpoint": {
+                                "browseEndpoint": {
+                                  "browseId": "UCRr1xG_2WIDs18a6cIiCxeA",
+                                  "browseEndpointContextSupportedConfigs": {
+                                    "browseEndpointContextMusicConfig": {
+                                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "text": " • "
+                            },
+                            {
+                              "text": "2001"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ],
+                  "thumbnail": {
+                    "musicThumbnailRenderer": {
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w60-h60-l90-rj",
+                            "width": 60,
+                            "height": 60
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w120-h120-l90-rj",
+                            "width": 120,
+                            "height": 120
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w226-h226-l90-rj",
+                            "width": 226,
+                            "height": 226
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w544-h544-l90-rj",
+                            "width": 544,
+                            "height": 544
+                          }
+                        ]
+                      },
+                      "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                      "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+                    }
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemRenderer": {
+                  "navigationEndpoint": {
+                    "browseEndpoint": {
+                      "browseId": "MPREb_K8qWMWVqXGi",
+                      "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {
+                          "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                        }
+                      }
+                    }
+                  },
+                  "flexColumns": [
+                    {
+                      "musicResponsiveListItemFlexColumnRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Random Access Memories"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "musicResponsiveListItemFlexColumnRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Album"
+                            },
+                            {
+                              "text": " • "
+                            },
+                            {
+                              "text": "Daft Punk",
+                              "navigationEndpoint": {
+                                "browseEndpoint": {
+                                  "browseId": "UCRr1xG_2WIDs18a6cIiCxeA",
+                                  "browseEndpointContextSupportedConfigs": {
+                                    "browseEndpointContextMusicConfig": {
+                                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "text": " • "
+                            },
+                            {
+                              "text": "2013"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ],
+                  "thumbnail": {
+                    "musicThumbnailRenderer": {
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://yt3.googleusercontent.com/N55arCGj69gtw6thXK8JUPisxoVYiwuIEQ7I6SGlkEyNcSJ7xIWPe76Vuu1SiUqRyx5w9qvR_zV8fV3CWQ=w60-h60-l90-rj",
+                            "width": 60,
+                            "height": 60
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/N55arCGj69gtw6thXK8JUPisxoVYiwuIEQ7I6SGlkEyNcSJ7xIWPe76Vuu1SiUqRyx5w9qvR_zV8fV3CWQ=w120-h120-l90-rj",
+                            "width": 120,
+                            "height": 120
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/N55arCGj69gtw6thXK8JUPisxoVYiwuIEQ7I6SGlkEyNcSJ7xIWPe76Vuu1SiUqRyx5w9qvR_zV8fV3CWQ=w226-h226-l90-rj",
+                            "width": 226,
+                            "height": 226
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/N55arCGj69gtw6thXK8JUPisxoVYiwuIEQ7I6SGlkEyNcSJ7xIWPe76Vuu1SiUqRyx5w9qvR_zV8fV3CWQ=w544-h544-l90-rj",
+                            "width": 544,
+                            "height": 544
+                          }
+                        ]
+                      },
+                      "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                      "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+                    }
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemRenderer": {
+                  "navigationEndpoint": {
+                    "browseEndpoint": {
+                      "browseId": "MPREb_CtOaObihCXA",
+                      "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {
+                          "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                        }
+                      }
+                    }
+                  },
+                  "flexColumns": [
+                    {
+                      "musicResponsiveListItemFlexColumnRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Alive 2007"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "musicResponsiveListItemFlexColumnRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Album"
+                            },
+                            {
+                              "text": " • "
+                            },
+                            {
+                              "text": "Daft Punk",
+                              "navigationEndpoint": {
+                                "browseEndpoint": {
+                                  "browseId": "UCRr1xG_2WIDs18a6cIiCxeA",
+                                  "browseEndpointContextSupportedConfigs": {
+                                    "browseEndpointContextMusicConfig": {
+                                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "text": " • "
+                            },
+                            {
+                              "text": "2007"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ],
+                  "thumbnail": {
+                    "musicThumbnailRenderer": {
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://yt3.googleusercontent.com/WcxKKKOBAyf3a4qI8N2FjOyylr6Th1wDdoofTEO3rDw5kmjI-DF2h0hPJeGURrCqPCs9BIhJAQj3f10=w60-h60-l90-rj",
+                            "width": 60,
+                            "height": 60
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/WcxKKKOBAyf3a4qI8N2FjOyylr6Th1wDdoofTEO3rDw5kmjI-DF2h0hPJeGURrCqPCs9BIhJAQj3f10=w120-h120-l90-rj",
+                            "width": 120,
+                            "height": 120
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/WcxKKKOBAyf3a4qI8N2FjOyylr6Th1wDdoofTEO3rDw5kmjI-DF2h0hPJeGURrCqPCs9BIhJAQj3f10=w226-h226-l90-rj",
+                            "width": 226,
+                            "height": 226
+                          },
+                          {
+                            "url": "https://yt3.googleusercontent.com/WcxKKKOBAyf3a4qI8N2FjOyylr6Th1wDdoofTEO3rDw5kmjI-DF2h0hPJeGURrCqPCs9BIhJAQj3f10=w544-h544-l90-rj",
+                            "width": 544,
+                            "height": 544
+                          }
+                        ]
+                      },
+                      "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                      "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

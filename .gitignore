@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*_tarefas.md
+*_duvidas_analista.md
+
+# Diagnósticos locais e arquivos de ambiente.
+collection-to-play-busca-*.json
+*.log
+.env
+.env.*
+*.pem
+*.key
