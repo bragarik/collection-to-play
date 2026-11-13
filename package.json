@@ -1,0 +1,30 @@
+{
+  "name": "collection-to-play",
+  "version": "0.2.3",
+  "private": true,
+  "description": "Open albums from your collection in your preferred streaming service.",
+  "license": "GPL-3.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "node scripts/build.mjs --typecheck",
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node tests/resolution.test.mjs && node tests/spotify.test.mjs && node tests/opening.test.mjs && node tests/preferences.test.mjs && node tests/youtube-music.test.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.7",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "author": "Ricardo (bragarik)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bragarik/collection-to-play.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bragarik/collection-to-play/issues"
+  },
+  "homepage": "https://github.com/bragarik/collection-to-play"
+}

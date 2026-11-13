@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Escolher álbum — Collection to Play</title>
+  <style>
+    :root { color-scheme: light; font: 14px/1.5 system-ui,sans-serif; color: #03151e; background: #ffffff; }
+    * { box-sizing: border-box; } body { margin: 0; padding: 18px; }
+    h1 { font-size: 20px; margin: 0 0 6px; letter-spacing: -.4px; }
+    h2 { font-size: 15px; line-height: 1.4; margin: 0 0 4px; font-weight: 650; }
+    #destination { display: inline-flex; gap: 6px; align-items: center; margin: 0 0 12px; padding: 4px 9px; border: 1px solid #dedede; border-radius: 20px; color: #0096b5; font-size: 12px; }
+    .spotify-icon { width: 24px; height: 24px; flex-shrink: 0; object-fit: contain; }
+    p { margin: 6px 0 12px; overflow-wrap: anywhere; }
+    #query { color: #666666; } #results { list-style: none; padding: 0; }
+    .candidate { padding: 16px; margin-bottom: 12px; background: white; border: 1px solid #dedede; border-radius: 12px; overflow-wrap: anywhere; box-shadow: 0 2px 6px rgba(0, 0, 0, .03); transition: border-color .15s, box-shadow .15s; }
+    .candidate:hover, .candidate:focus-within { border-color: #0096b5; box-shadow: 0 4px 12px rgba(0, 0, 0, .08); }
+    .candidate-header { display: flex; align-items: center; gap: 12px; }
+    .candidate-info { flex: 1; min-width: 0; }
+    .album-art { flex: 0 0 56px; width: 56px; height: 56px; display: grid; place-items: center; color: #0096b5; border-radius: 10px; background: #efefef; }
+    .album-art img { display: block; width: 100%; height: 100%; object-fit: contain; background: white; }
+    .album-art svg { width: 32px; height: 32px; }
+    .candidate-artists { font-size: 13px; color: #666666; margin: 0; }
+    .release-date { color: #666666; font-size: 11px; margin: 6px 0 0; }
+    .candidate-action { display: flex; justify-content: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid #efefef; }
+    .candidate .open-album { display: grid; place-items: center; padding: 0; width: 48px; height: 48px; border: 1px solid transparent; border-radius: 50%; color: white; background: #4bc1d2; }
+    .candidate .open-album:hover:not(:disabled) { color: white; background: #0096b5; border-color: #0096b5; }
+    .open-album svg { width: 19px; height: 19px; }
+    .candidate select { margin-top: 12px; }
+    button { display: block; margin-inline: auto; padding: 10px 12px; border: 0; border-radius: 6px; background: #4bc1d2; color: white; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; } button:hover:not(:disabled) { background: #0096b5; }
+    :focus-visible { outline: 3px solid #0096b5; outline-offset: 2px; }
+    input, select { padding: 8px; width: 100%; border: 1px solid #dedede; border-radius: 5px; font: inherit; }
+    input[type=checkbox] { width: auto; margin-right: 6px; } label { display: block; margin: 8px 0; }
+    #remember-options { padding: 8px 0; } .note { font-size: 12px; color: #666666; }
+    details { margin-top: 16px; } summary { cursor: pointer; color: #0096b5; }
+    a { color: #0096b5; } [hidden] { display: none !important; }
+  </style>
+  <script type="module" src="album-panel.js"></script>
+</head>
+<body>
+  <h1>Escolher álbum</h1>
+  <p id="query"></p>
+  <div id="destination"></div>
+  <p id="status" role="status" aria-live="polite">Buscando álbuns…</p>
+  <div id="remember-options" hidden>
+    <label><input id="remember-album" type="checkbox">Lembrar decisão</label>
+    <p class="note">O artista será lembrado para este item. Marque para lembrar também este álbum.</p>
+  </div>
+  <ol id="results"></ol>
+  <button id="load-more" type="button" hidden>Carregar mais resultados</button>
+  <a id="search-fallback" target="_blank" rel="noopener noreferrer" hidden>Buscar no Spotify</a>
+  <details id="refine">
+    <summary>Ajustar a busca</summary>
+    <form id="album-search">
+      <label for="album-title">Álbum</label><input id="album-title" required maxlength="200">
+      <label for="album-artist">Artista (opcional)</label><input id="album-artist" maxlength="200">
+      <button type="submit">Buscar álbuns</button>
+    </form>
+  </details>
+</body>
+</html>

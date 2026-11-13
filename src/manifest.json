@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "Collection to Play",
+  "version": "0.2.3",
+  "description": "Abra álbuns da sua coleção no streaming escolhido. Integração inicial com Libib.",
+  "minimum_chrome_version": "120",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkFe44HoxjZY822GIvhr4IcN+gBa8PY1dXC2OLJD4XF1DU7ezbd2yl6UF4sUyOjZgQxt/gxJAx1Y3HFF93vsFul7P4YKHrqT6HWu5hCBY6I6bgsqcSZ1VVnsQTLW85U4BiTvVM6KvC1nBifhGxq2YA48wMU6+gvCs8qd8SIMEx5xr1DGzy8ig+GR1c+IC9hKlTg5LSBSpclmQ2rH1gLVPO6f4mVP5c6zVvt4PXhh9wnBC6Xt94Hmjuxj4yBFBxmunf0bL6lprBg4yK6cC1WbvxQF9AvrmpJBG8IPIMuhJpdWEMGIKM2nLWtEuDx+5bulxH3YW5TkEzG+VWg2WlRYKpwIDAQAB",
+  "permissions": [
+    "identity",
+    "storage",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://accounts.spotify.com/*",
+    "https://api.spotify.com/*",
+    "https://music.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Collection to Play",
+    "default_popup": "setup.html"
+  },
+  "options_ui": {
+    "page": "setup.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.libib.com/library*"
+      ],
+      "js": [
+        "library.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "album-panel.html",
+        "library.css",
+        "spotify-icon.svg",
+        "youtube-music-icon.png"
+      ],
+      "matches": [
+        "https://www.libib.com/*"
+      ]
+    }
+  ]
+}
