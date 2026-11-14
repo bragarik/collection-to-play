@@ -73,6 +73,11 @@ começa desmarcada. Sem essa marcação, novas buscas ficam restritas ao artista
 lembrado e continuam pedindo escolha quando houver mais de um álbum desse artista.
 As aberturas automáticas não criam, por si só, uma escolha manual lembrada.
 
+A configuração usa seções expansíveis: **Streaming e conexão**, **Biblioteca Libib**,
+**Diagnóstico de busca** e **Dados técnicos do Spotify**. Streaming começa aberto
+quando precisa de configuração ou login; os demais grupos ficam recolhidos.
+O indicador de atenção do Libib permanece visível no cabeçalho da seção fechada.
+
 Na configuração, "Escolhas salvas" abre um modal para pesquisar e esquecer associações,
 com paginação de vinte registros. O link "Abrir em tela inteira" abre a configuração em uma aba.
 Esquecer remove artista e álbum daquele registro, preservando as demais escolhas
@@ -81,6 +86,34 @@ e o streaming preferido. Inclusão e escolha acontecem pelo álbum no Libib.
 Quando o catálogo não fornece ID próprio do item, a lembrança usa a origem,
 título, artista e códigos disponíveis. Itens com esses mesmos dados podem ser
 indistinguíveis. O projeto não presume um ID interno do Libib que não foi verificado.
+
+### Atualizar título e artistas de um item
+
+Na edição de um item de música do Libib, a lista de campos inclui
+"Atualizar dados via Spotify" ou "Atualizar dados via YouTube Music", conforme
+o streaming configurado. A opção abre a busca dentro da página e permite
+selecionar um álbum para conferir título e artistas, com capas e paginação.
+A opção aparece no início da lista, com um destaque turquesa suave.
+Você pode ajustar a busca se necessário.
+
+Essa seleção consulta o serviço novamente, sem reutilizar o álbum lembrado para
+ouvir. Ela não abre player nem altera as escolhas salvas. Na prévia, você pode
+editar o título e os artistas antes de salvar; informe um artista por linha.
+Clique em **Aplicar dados** para salvar os valores editados imediatamente, sem outro clique
+no botão Salvar do Libib. A ordenação personalizada do título é preservada.
+O salvamento usa o fluxo nativo do Libib para manter seus campos e a listagem sincronizados.
+
+Os campos são enviados separadamente. A confirmação informa quando ambos foram
+salvos ou quando um campo não pôde ser confirmado; nesse caso, confira o item
+antes de tentar novamente. Os campos nativos recebem os valores confirmados e,
+ao fechar a edição do Libib, o próprio site atualiza o álbum na listagem.
+Se a atualização visual não puder ser confirmada, o painel orienta reabrir o item.
+Durante o envio, aguarde a confirmação antes de fechar o painel.
+
+Nomes de artistas com vírgulas, aspas ou quebras de linha exigem edição manual pelo
+campo nativo: o formato de escape desses nomes ainda não está confirmado. A extensão
+avisa antes de alterar qualquer campo. A preservação das lembranças após renomear
+ainda está em desenvolvimento.
 
 ## Conectar ao Spotify
 
@@ -146,11 +179,33 @@ O log não inclui senha, cookies ou cabeçalhos de autorização. Inclui título
 artistas, códigos e a URL de origem da biblioteca: revise esses dados antes de
 compartilhá-lo. Logs exportados não fazem parte do repositório público.
 
+## Diagnóstico da biblioteca Libib
+
+Na configuração, a seção **Biblioteca Libib** apresenta a última avaliação registrada
+para coleção, detalhes de álbum e edição. Indica estrutura reconhecida, possível
+mudança ou informação insuficiente. Coleção vazia, página carregando e áreas ainda
+não observadas não são apresentadas como prova de quebra. Reconhecer a estrutura
+não garante o funcionamento de todas as operações.
+
+Se o registro tiver sido feito por outra versão da extensão, reabra o Libib para
+atualizar a verificação. **Atualizar informações** lê novamente o último registro
+local; **Exportar diagnóstico Libib** baixa o JSON para investigação, separado do
+log de busca do streaming. A exportação inclui data, versões, avaliações e eventos
+filtrados, sem títulos, artistas, corpos de resposta ou autenticação.
+
+O diagnóstico representa a última avaliação registrada, não uma garantia sobre
+todas as abas abertas. Os resultados da atualização de título e artistas aparecem
+no painel de aplicação e ainda não integram este diagnóstico.
+
 ## Dados e permissões
 
 - A sessão Spotify, preferências e escolhas são mantidas no armazenamento local
   da extensão. Desconectar remove a sessão Spotify local, sem apagar as escolhas.
 - Tokens ficam nos contextos confiáveis da extensão; a página Libib não os recebe.
+- Verificações da estrutura do Libib são registradas localmente com avaliação,
+  motivo, data e versão da extensão, sem copiar títulos, artistas ou conteúdo de
+  formulários. A seção "Biblioteca Libib" na configuração mostra a última
+  avaliação e permite exportar um diagnóstico filtrado.
 - A autorização Spotify e sua pesquisa usam accounts.spotify.com e api.spotify.com.
   YouTube Music consulta music.youtube.com sem cookies. Capas válidas são carregadas
   de i.scdn.co, lh3.googleusercontent.com, yt3.googleusercontent.com ou i.ytimg.com.
@@ -161,6 +216,9 @@ compartilhá-lo. Logs exportados não fazem parte do repositório público.
   e YouTube Music indicados no manifesto. A regra de rede remove o cabeçalho Origin
   somente de POSTs da própria extensão ao endpoint de busca YouTube Music; não
   altera navegação normal do usuário nem chamadas Spotify.
+- Uma integração local aciona os handlers nativos de título/artistas e confere
+  suas respostas. O próprio Libib atualiza seus campos e a listagem ao fechar a edição. Esse script
+  não recebe tokens Spotify nem acessa o armazenamento da extensão.
 
 ## Contribuição e estrutura
 

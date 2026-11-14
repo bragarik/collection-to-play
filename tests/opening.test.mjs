@@ -391,3 +391,88 @@ test("diagnóstico preserva lotes quando o armazenamento muda a ordem dos campos
     await send({type: "preferences:set-service", service: "spotify"}, extension);
   }
 });
+
+test("observações Libib são avaliadas e armazenadas sem expor o conteúdo da página", async () => {
+  const before = apiCalls + youtubeCalls;
+  const observation = {page: "ready", collection: {containerFound: true, musicItems: 1, itemsWithTitleElement: 1},
+    title: "private-observation", cookie: "private-cookie", code: "save-confirmed"};
+  const message = {type: "library:observe", sourceUrl: libraryUrl, observation};
+  assert.deepEqual((await send(message)).data, {recorded: true});
+  assert.deepEqual((await send(message)).data, {recorded: false});
+  const state = stored.get("libib.diagnostics");
+  assert.equal(state.latest.checks[0].state, "recognized");
+  assert.equal(state.latest.checks[2].state, "unverified");
+  assert.equal(state.latest.extensionVersion, "0.1.0");
+  assert.equal(JSON.stringify(state).includes("private-"), false);
+  assert.equal(apiCalls + youtubeCalls, before);
+});
+
+test("observações rejeitam configurações, iframes, outra origem e conteúdo inválido", async () => {
+  const message = {type: "library:observe", sourceUrl: libraryUrl, observation: {page: "ready", collection: {containerFound: true, musicItems: 1, itemsWithTitleElement: 0}}};
+  for (const sender of [extension, {...content, frameId: 1}, {...content, id: "another-extension"}, {...content, url: "https://evil.example"}, {...content, tab: undefined}]) {
+    assert.equal(await send(message, sender), undefined);
+  }
+  assert.equal(await send({...message, sourceUrl: `${libraryUrl}/forged`}), undefined);
+  const before = structuredClone(stored.get("libib.diagnostics"));
+  assert.equal((await send({...message, observation: {page: "ready", collection: {containerFound: true, musicItems: -1, itemsWithTitleElement: 0}}})).ok, false);
+  assert.deepEqual(stored.get("libib.diagnostics"), before);
+});
+
+test("diagnóstico Libib é lido somente pela extensão e passa pela sanitização", async () => {
+  const key = "libib.diagnostics";
+  const original = structuredClone(stored.get(key));
+  stored.set(key, {...original, secret: "private-secret", latest: {...original.latest, url: "private-url"},
+    report: {...original.report, events: original.report.events.map(event => ({...event, cookie: "private-cookie"}))}});
+  try {
+    assert.equal(await send({type: "libib:diagnostics"}), undefined);
+    const reply = await send({type: "libib:diagnostics"}, extension);
+    assert.equal(reply.ok, true);
+    assert.equal(reply.data.latest.checks[0].state, "recognized");
+    assert.equal(JSON.stringify(reply.data).includes("private-"), false);
+    assert.equal(JSON.stringify(stored.get(key)).includes("private-"), true);
+    stored.set(key, {...original, schemaVersion: 2});
+    assert.equal((await send({type: "libib:diagnostics"}, extension)).error.code, "invalid-response");
+    assert.equal(stored.get(key).schemaVersion, 2);
+  } finally {stored.set(key, original);}
+});
+
+test("busca de metadados ignora álbum lembrado, consulta Spotify e não abre nem grava escolhas", async () => {
+  await send({type: "preferences:set-service", service: "spotify"}, extension);
+  mode = "exact";
+  const search = {type: "spotify:search", title: "Metadata example", artist: "Daft Punk", sourceUrl: libraryUrl};
+  const first = (await send(search, extension)).data;
+  await send({type: "spotify:select", selectionId: first.selectionId, albumId, artistId: "B".repeat(22), rememberAlbum: true, target: "web"}, extension);
+  const beforeCalls = apiCalls;
+  const beforeOpened = opened.length;
+  const beforePreferences = structuredClone(stored.get("library.preferences"));
+  const result = (await send({...search, purpose: "metadata"}, extension)).data;
+  assert.ok(apiCalls > beforeCalls);
+  assert.equal(result.resolution.status, "choose");
+  assert.equal(result.resolution.candidates.length, 1);
+  assert.notEqual(result.resolution.reason, "remembered-album");
+  assert.equal(result.selectionId, undefined);
+  assert.notEqual(result.autoOpen, true);
+  assert.equal(opened.length, beforeOpened);
+  assert.deepEqual(stored.get("library.preferences"), beforePreferences);
+});
+
+test("metadados YouTube Music mantêm candidatos e continuação sem abrir player", async () => {
+  await send({type: "preferences:set-service", service: "youtube-music"}, extension);
+  try {
+    const before = opened.length;
+    const result = (await send({type: "spotify:search", title: "Metadata search", artist: "", sourceUrl: libraryUrl, purpose: "metadata"}, extension)).data;
+    assert.equal(result.resolution.status, "choose");
+    assert.equal(result.resolution.candidates.length, 3);
+    assert.equal(result.selectionId, undefined);
+    assert.equal(opened.length, before);
+    assert.ok(youtubeCalls > 0);
+  } finally {await send({type: "preferences:set-service", service: "spotify"}, extension);}
+});
+
+test("finalidade de metadados exige busca da extensão com origem Libib válida", async () => {
+  const message = {type: "spotify:search", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl, purpose: "metadata"};
+  assert.equal(await send(message, content), undefined);
+  for (const changes of [{sourceUrl: undefined}, {sourceUrl: "https://evil.example"}, {purpose: "unknown"}, {type: "spotify:open", target: "web"}]) {
+    assert.equal((await send({...message, ...changes}, extension)).error.code, "invalid-query");
+  }
+});

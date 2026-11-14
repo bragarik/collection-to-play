@@ -1,8 +1,19 @@
 import { isSupportedCatalogUrl, type AlbumQuery, type AlbumOpenTarget, type AppReply } from "./contracts.js";
 
 import { libib, setLibibService } from "./libib.js";
+import { collectLibibObservation, createLibibObservationPublisher } from "./libib-observer.js";
+import { createLibibEditor } from "./libib-editor.js";
+
+const diagnosticPublisher = createLibibObservationPublisher({
+  collect: () => collectLibibObservation(document),
+  async send(observation) {
+    const reply: AppReply<{recorded: boolean}> | undefined = await chrome.runtime.sendMessage({type: "library:observe", sourceUrl: location.href, observation});
+    if (!reply?.ok) throw new Error("Não foi possível registrar o diagnóstico Libib.");
+  },
+});
 
 let selectedService = "spotify";
+const editor = createLibibEditor({document, pageUrl: () => location.href, service: () => selectedService, resourceUrl: path => chrome.runtime.getURL(path)});
 async function refreshService(): Promise<void> {
   if (!isSupportedCatalogUrl(location.href)) return;
   try {
@@ -36,6 +47,8 @@ function syncAlbumActions(): void {
 const hostId = "collection-to-play-library";
 
 function updateLibraryAction(): void {
+  diagnosticPublisher.schedule();
+  editor.sync();
   const existing = document.getElementById(hostId);
   if (!isSupportedCatalogUrl(location.href)) {
     existing?.remove(); openAlbum = undefined;
@@ -112,7 +125,8 @@ const observer = new MutationObserver(() => {
   scheduled = true;
   setTimeout(() => { scheduled = false; updateLibraryAction(); }, 100);
 });
-observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["class", "hidden", "style", "aria-busy", "data-join-id", "data-library-id", "data-item-type"] });
+document.addEventListener("DOMContentLoaded", () => diagnosticPublisher.schedule());
 window.addEventListener("popstate", updateLibraryAction);
 window.addEventListener("hashchange", updateLibraryAction);
 let previousUrl = location.href;
@@ -124,4 +138,7 @@ updateLibraryAction();
 void refreshService();
 window.addEventListener("focus", () => { void refreshService(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void refreshService(); });
-setInterval(() => { if (!document.hidden) void refreshService(); }, 5000);
+setInterval(() => {
+  if (!document.hidden) {void refreshService(); diagnosticPublisher.schedule();}
+}, 5000);
+window.addEventListener("pagehide", () => {diagnosticPublisher.stop(); editor.stop();});

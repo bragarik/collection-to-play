@@ -27,10 +27,17 @@
     .candidate .open-album:hover:not(:disabled) { color: white; background: #0096b5; border-color: #0096b5; }
     .open-album svg { width: 19px; height: 19px; }
     .candidate select { margin-top: 12px; }
+    .candidate[data-selected] { border-color: #0096b5; background: #f2fbfc; }
+    .metadata-choice { display: inline-flex; align-items: center; gap: 6px; }
+    #metadata-selection { padding: 12px; border: 1px solid #4bc1d2; border-radius: 8px; background: #f2fbfc; }
+    #metadata-selection dl { margin: 8px 0; }
+    #metadata-selection dt { color: #666666; font-size: 12px; }
+    #metadata-selection dd { margin: 0 0 8px; overflow-wrap: anywhere; }
     button { display: block; margin-inline: auto; padding: 10px 12px; border: 0; border-radius: 6px; background: #4bc1d2; color: white; font: inherit; cursor: pointer; }
     button:disabled { opacity: .55; cursor: wait; } button:hover:not(:disabled) { background: #0096b5; }
     :focus-visible { outline: 3px solid #0096b5; outline-offset: 2px; }
-    input, select { padding: 8px; width: 100%; border: 1px solid #dedede; border-radius: 5px; font: inherit; }
+    input, select, textarea { padding: 8px; width: 100%; border: 1px solid #dedede; border-radius: 5px; font: inherit; background: white; color: inherit; }
+    textarea { resize: vertical; }
     input[type=checkbox] { width: auto; margin-right: 6px; } label { display: block; margin: 8px 0; }
     #remember-options { padding: 8px 0; } .note { font-size: 12px; color: #666666; }
     details { margin-top: 16px; } summary { cursor: pointer; color: #0096b5; }
@@ -43,6 +50,18 @@
   <p id="query"></p>
   <div id="destination"></div>
   <p id="status" role="status" aria-live="polite">Buscando álbuns…</p>
+  <section id="metadata-selection" aria-label="Dados selecionados" hidden>
+    <strong>Álbum selecionado</strong>
+    <dl>
+      <dt><label for="selected-title">Título</label></dt>
+      <dd><input id="selected-title" maxlength="512" required></dd>
+      <dt><label for="selected-artists">Artista / criadores</label></dt>
+      <dd><textarea id="selected-artists" rows="2" aria-describedby="selected-artists-help" required></textarea></dd>
+    </dl>
+    <p id="selected-artists-help" class="note">Para incluir vários artistas, pressione Enter entre os nomes.</p>
+    <p id="metadata-note" class="note">Nenhuma alteração foi salva no Libib.</p>
+    <button id="apply-metadata" type="button" disabled>Aplicar dados</button>
+  </section>
   <div id="remember-options" hidden>
     <label><input id="remember-album" type="checkbox">Lembrar decisão</label>
     <p class="note">O artista será lembrado para este item. Marque para lembrar também este álbum.</p>

@@ -1,6 +1,6 @@
 {
   "name": "collection-to-play",
-  "version": "0.2.3",
+  "version": "0.2.13",
   "private": true,
   "description": "Open albums from your collection in your preferred streaming service.",
   "license": "GPL-3.0",
@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "node scripts/build.mjs --typecheck",
     "build": "node scripts/build.mjs",
-    "test": "npm run build && node tests/resolution.test.mjs && node tests/spotify.test.mjs && node tests/opening.test.mjs && node tests/preferences.test.mjs && node tests/youtube-music.test.mjs"
+    "test": "npm run build && node tests/resolution.test.mjs && node tests/spotify.test.mjs && node tests/opening.test.mjs && node tests/preferences.test.mjs && node tests/youtube-music.test.mjs && node tests/libib-diagnostics.test.mjs && node tests/libib-observer.test.mjs && node tests/libib-edit.test.mjs && node tests/libib-metadata.test.mjs && node tests/libib-native.test.mjs"
   },
   "devDependencies": {
     "@types/chrome": "0.3.7",
