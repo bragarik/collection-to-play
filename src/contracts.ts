@@ -1,4 +1,5 @@
 import type { AlbumResolution } from "./resolution.js";
+import type { LibibObservation } from "./libib-diagnostics.js";
 
 export type StreamingId =
   | "spotify"
@@ -92,6 +93,8 @@ export const SETUP_REQUEST = "setup:get";
 export type AppRequest =
   | { readonly type: typeof SETUP_REQUEST }
   | { readonly type: "library:get-service"; readonly sourceUrl: string }
+  | { readonly type: "library:observe"; readonly sourceUrl: string; readonly observation: LibibObservation }
+  | { readonly type: "libib:diagnostics" }
   | { readonly type: "preferences:get" }
   | { readonly type: "preferences:set-service"; readonly service: StreamingId }
   | { readonly type: "preferences:delete"; readonly key: string }
@@ -102,7 +105,7 @@ export type AppRequest =
   | { readonly type: "spotify:select"; readonly selectionId: string; readonly albumId: string; readonly artistId: string; readonly rememberAlbum: boolean; readonly target: AlbumOpenTarget }
   | { readonly type: "spotify:pending"; readonly id: string }
   | { readonly type: "spotify:open"; readonly title: string; readonly artist: string; readonly upc?: string; readonly ean?: string; readonly sourceUrl: string; readonly target: AlbumOpenTarget }
-  | { readonly type: "spotify:search"; readonly title: string; readonly artist: string; readonly upc?: string; readonly ean?: string; readonly nextPage?: string; readonly sourceUrl?: string; readonly lookupTitle?: string; readonly lookupArtist?: string };
+  | { readonly type: "spotify:search"; readonly title: string; readonly artist: string; readonly upc?: string; readonly ean?: string; readonly nextPage?: string; readonly sourceUrl?: string; readonly lookupTitle?: string; readonly lookupArtist?: string; readonly purpose?: "metadata" };
 
 export interface AlbumSearchReply {
   readonly resolution: AlbumResolution;

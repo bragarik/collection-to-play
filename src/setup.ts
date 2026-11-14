@@ -1,6 +1,7 @@
 import { spotifyIcon, youtubeMusicIcon } from "./spotify-brand.js";
 import { SETUP_REQUEST, STREAMINGS, type AppReply, type AppRequest, type SetupInfo } from "./contracts.js";
 import { normalizeMetadata, type RememberedChoice, type AlbumResolution } from "./resolution.js";
+import { mountLibibDiagnosticPanel } from "./libib-diagnostic-ui.js";
 
 document.body.classList.toggle("full-page", new URLSearchParams(location.search).get("view") === "full");
 
@@ -115,9 +116,11 @@ async function loadPreferences(refreshService = false): Promise<void> {
   const value = await request<{service?: string; choices: readonly RememberedChoice[]}>({type: "preferences:get"});
   choices = value.choices;
   if (!preferencesLoaded || refreshService) streaming.value = value.service ?? "";
+  if (!preferencesLoaded) element<HTMLDetailsElement>("#streaming-section").open = !value.service || value.service === "spotify" && !connected;
   element("#first-use").hidden = Boolean(value.service);
   preferencesLoaded = true;
   youtubeMusic = value.service === "youtube-music";
+  element("#streaming-section-label").textContent = STREAMINGS.find(service => service.id === value.service)?.name ?? "Não configurado";
   element("#spotify-connection").hidden = youtubeMusic;
   element("#youtube-connection").hidden = !youtubeMusic;
   searchButton.textContent = `Buscar no ${searchServiceName()}`;
@@ -296,6 +299,9 @@ copyButton.addEventListener("click", async () => {
   }
 });
 
+const libibDiagnosticPanel = mountLibibDiagnosticPanel({root: document, version: chrome.runtime.getManifest().version,
+  request: () => request({type: "libib:diagnostics"})});
+
 async function loadSetup(): Promise<void> {
   try {
     const info = await request<SetupInfo>({ type: SETUP_REQUEST });
@@ -312,6 +318,7 @@ async function loadSetup(): Promise<void> {
     busy(false);
     copyButton.disabled = false;
     await loadPreferences();
+    await libibDiagnosticPanel.refresh();
     document.body.dataset["ready"] = "true";
   } catch (error) {
     status.textContent = "Não foi possível carregar a configuração.";

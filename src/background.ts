@@ -5,6 +5,7 @@ import { SpotifyClient, spotifySearchUrl, type SpotifySearchEvent } from "./spot
 import { LibraryPreferences } from "./preferences.js";
 import type { AlbumQuery, AlbumCandidate, AlbumOpenTarget } from "./contracts.js";
 import { normalizeProductCode, productCodeVariants, productCodesMatch } from "./identifiers.js";
+import { LibibDiagnosticsStore } from "./libib-diagnostic-store.js";
 
 const youtubeMusic = new YouTubeMusicClient();
 let youtubeRequestRules: Promise<void> | undefined;
@@ -33,6 +34,10 @@ const preferences = new LibraryPreferences({
   async load() { await storageReady; return (await chrome.storage.local.get("library.preferences"))["library.preferences"] as unknown; },
   async save(value) { await storageReady; await chrome.storage.local.set({ "library.preferences": value }); },
 });
+const libibDiagnostics = new LibibDiagnosticsStore({
+  async load() {await storageReady; return (await chrome.storage.local.get("libib.diagnostics"))["libib.diagnostics"] as unknown;},
+  async save(value) {await storageReady; await chrome.storage.local.set({"libib.diagnostics": value});},
+}, chrome.runtime.getManifest().version);
 const spotify = new SpotifyClient({
   clientId: SPOTIFY.clientId,
   redirectUrl: chrome.identity.getRedirectURL(SPOTIFY.redirectPath),
@@ -136,6 +141,14 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       return setup;
     }
     case "library:get-service": return {service: await preferences.getService()};
+    case "library:observe": return libibDiagnostics.record(message["observation"]);
+    case "libib:diagnostics": {
+      try {return await libibDiagnostics.read();}
+      catch (error) {
+        if (error instanceof TypeError) throw new StreamingError("invalid-response", "O diagnóstico Libib tem formato desconhecido ou inválido. Confira a versão da extensão e preserve os dados existentes.");
+        throw error;
+      }
+    }
     case "preferences:get": return { service: await preferences.getService(), choices: await preferences.listChoices() };
     case "preferences:set-service": {
       const service = STREAMINGS.find(item => item.id === message["service"] && item.available);
@@ -211,6 +224,10 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       }
       if (!opening && sourceUrl) await requireStreamingPreference();
       if (opening && !sourceUrl) throw new StreamingError("invalid-query", "Origem da biblioteca obrigatória.");
+      const metadata = message["purpose"] === "metadata";
+      if (message["purpose"] !== undefined && (opening || !metadata || !sourceUrl)) {
+        throw new StreamingError("invalid-query", "Finalidade de busca inválida.");
+      }
       const query = { title: title.trim(), artist: artist.trim(), ...identifiers,
         source: { catalogId: sourceUrl ? LIBIB.id : "preview", itemUrl: typeof sourceUrl === "string" ? sourceUrl : LIBIB.libraryUrl } };
       let lookupQuery = query;
@@ -238,7 +255,7 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
           return youtubeMusic.search(query, signal, cursor as string | undefined, collectDiagnostic);
         }}
         : { id: spotify.id, search: (_value: typeof query, signal?: AbortSignal) => spotify.search(query, signal, cursor as string | undefined, collectDiagnostic) };
-      const remembered = await preferences.getChoice(lookupQuery, adapter.id);
+      const remembered = metadata ? undefined : await preferences.getChoice(lookupQuery, adapter.id);
       const resolution = await searchAlbums(adapter, lookupQuery, remembered);
       await storageReady;
       const key = `${adapter.id}.searchDiagnostic`;
@@ -258,7 +275,7 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       const singleAlbum = resolution.status === "resolved" ? resolution.album
         : resolution.status === "choose" && !resolution.incomplete && resolution.candidates.length === 1 ? resolution.candidates[0] : undefined;
       let selectionId: string | undefined;
-      if (query.source.catalogId === LIBIB.id && (resolution.status === "choose" || resolution.status === "resolved")) {
+      if (!metadata && query.source.catalogId === LIBIB.id && (resolution.status === "choose" || resolution.status === "resolved")) {
         for (const [id, entry] of selections) if (entry.expiresAt <= Date.now()) selections.delete(id);
         if (selections.size >= 100) selections.delete(selections.keys().next().value!);
         selectionId = crypto.randomUUID();
@@ -292,9 +309,10 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 
   const request = message as Record<string, unknown>;
   const extensionPage = sender.url?.startsWith(chrome.runtime.getURL(""));
-  const libraryAction = (request["type"] === "spotify:open" || request["type"] === "library:get-service") && sender.tab && sender.frameId === 0 &&
+  const libraryAction = (request["type"] === "spotify:open" || request["type"] === "library:get-service" || request["type"] === "library:observe") && sender.tab && sender.frameId === 0 &&
     sender.url && isSupportedCatalogUrl(sender.url) && request["sourceUrl"] === sender.url;
   if (sender.id !== chrome.runtime.id || (!extensionPage && !libraryAction)) return false;
+  if (request["type"] === "library:observe" && !libraryAction) return false;
 
   void dispatch(request).then(
     (data) => { const reply: AppReply<unknown> = { ok: true, data }; sendResponse(reply); },

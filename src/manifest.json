@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Collection to Play",
-  "version": "0.2.3",
+  "version": "0.2.13",
   "description": "Abra álbuns da sua coleção no streaming escolhido. Integração inicial com Libib.",
   "minimum_chrome_version": "120",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkFe44HoxjZY822GIvhr4IcN+gBa8PY1dXC2OLJD4XF1DU7ezbd2yl6UF4sUyOjZgQxt/gxJAx1Y3HFF93vsFul7P4YKHrqT6HWu5hCBY6I6bgsqcSZ1VVnsQTLW85U4BiTvVM6KvC1nBifhGxq2YA48wMU6+gvCs8qd8SIMEx5xr1DGzy8ig+GR1c+IC9hKlTg5LSBSpclmQ2rH1gLVPO6f4mVP5c6zVvt4PXhh9wnBC6Xt94Hmjuxj4yBFBxmunf0bL6lprBg4yK6cC1WbvxQF9AvrmpJBG8IPIMuhJpdWEMGIKM2nLWtEuDx+5bulxH3YW5TkEzG+VWg2WlRYKpwIDAQAB",
@@ -28,6 +28,16 @@
     "open_in_tab": true
   },
   "content_scripts": [
+    {
+      "matches": [
+        "https://www.libib.com/library*"
+      ],
+      "js": [
+        "libib-native-entry.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
     {
       "matches": [
         "https://www.libib.com/library*"

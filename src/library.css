@@ -54,3 +54,22 @@ button:disabled { cursor: wait; opacity: .6; }
 :host([data-kind="card"]) .album-options button:hover:not(:disabled) { background: #0096b5; }
 
 .spotify-icon { width: 24px; height: 24px; flex-shrink: 0; object-fit: contain; }
+
+.metadata-editor {
+  width: min(480px, calc(100vw - 32px));
+  height: min(720px, calc(100dvh - 32px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid #dedede;
+  border-radius: 12px;
+  color: #03151e;
+  background: white;
+  font: 14px/1.5 system-ui, sans-serif;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, .2);
+}
+.metadata-editor[open] { display: flex; flex-direction: column; }
+.metadata-editor::backdrop { background: rgba(3, 21, 30, .35); }
+.editor-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #efefef; padding-left: 16px; gap: 8px; }
+.editor-header h2 { margin: 0; font-size: 15px; line-height: 1.4; }
+.editor-status { margin: 16px; }

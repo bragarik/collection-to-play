@@ -67,9 +67,10 @@ const artifacts = await Promise.all(
 );
 
 if (entries.length > 0) {
+  const mainEntries = entries.filter(filename => path.basename(filename) === "libib-native-entry.ts");
   const result = await build({
     absWorkingDir: root,
-    entryPoints: entries,
+    entryPoints: entries.filter(filename => !mainEntries.includes(filename)),
     outbase: source,
     outdir: output,
     bundle: true,
@@ -82,6 +83,15 @@ if (entries.length > 0) {
     tsconfig: path.join(root, "tsconfig.json"),
   });
   artifacts.push(...result.outputFiles);
+  // The bridge shares Libib's world; keep all helpers inside its own scope.
+  if (mainEntries.length) {
+    const mainResult = await build({
+      absWorkingDir: root, entryPoints: mainEntries, outbase: source, outdir: output,
+      bundle: true, format: "iife", platform: "browser", target: "chrome120",
+      sourcemap: true, write: false, logLevel: "warning", tsconfig: path.join(root, "tsconfig.json"),
+    });
+    artifacts.push(...mainResult.outputFiles);
+  }
 }
 
 // Replace generated output only after type checking and compilation succeed.

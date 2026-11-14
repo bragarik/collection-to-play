@@ -1,5 +1,6 @@
 import { isYouTubeArtwork } from "./youtube-music.js";
 import { spotifyIcon, youtubeMusicIcon } from "./spotify-brand.js";
+import {describeLibibApplyResult, isLibibApplyResult, type AlbumMetadata, type LibibApplyResult} from "./libib-metadata.js";
 import { isSupportedCatalogUrl, type AlbumCandidate, type AlbumOpenTarget, type AlbumSearchReply, type AppReply, type AppRequest, type SetupInfo } from "./contracts.js";
 
 function element<T extends HTMLElement>(selector: string): T {
@@ -8,6 +9,13 @@ function element<T extends HTMLElement>(selector: string): T {
   return found;
 }
 const params = new URLSearchParams(location.search);
+const metadataMode = params.get("mode") === "metadata";
+const metadataSession = params.get("session") ?? "";
+const apply = element<HTMLButtonElement>("#apply-metadata");
+const selectedTitle = element<HTMLInputElement>("#selected-title");
+const selectedArtists = element<HTMLTextAreaElement>("#selected-artists");
+let selectedMetadata: AlbumMetadata | undefined;
+let metadataSaved = false;
 const sourceUrl = params.get("source") ?? "";
 const target: AlbumOpenTarget = params.get("target") === "app" ? "app" : "web";
 const title = element<HTMLInputElement>("#album-title");
@@ -35,8 +43,47 @@ async function request<T>(message: AppRequest): Promise<T> {
   return reply.data;
 }
 function busy(value: boolean): void {
-  document.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>("button, input, select").forEach(control => {control.disabled = value;});
+  document.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("button, input, select, textarea").forEach(control => {control.disabled = value;});
+  apply.disabled = value || !selectedMetadata || metadataSaved || !metadataSession || window.parent === window;
 }
+function applyMetadata(metadata: AlbumMetadata): Promise<LibibApplyResult> {
+  if (!metadataSession || window.parent === window) return Promise.reject(new Error("Reabra a ação no editor do Libib."));
+  const requestId = crypto.randomUUID();
+  const origin = new URL(sourceUrl).origin;
+  return new Promise((resolve, reject) => {
+    const finish = (): void => {clearTimeout(timer); window.removeEventListener("message", receive);};
+    const receive = (event: MessageEvent): void => {
+      if (!event.isTrusted || event.source !== window.parent || event.origin !== origin || !event.data || typeof event.data !== "object") return;
+      const message = event.data as Record<string, unknown>;
+      if (message["type"] !== "collection-to-play:metadata-applied" || message["session"] !== metadataSession || message["requestId"] !== requestId) return;
+      finish();
+      if (isLibibApplyResult(message["result"])) resolve(message["result"]);
+      else reject(new Error(typeof message["error"] === "string" ? message["error"].slice(0, 300) : "Não foi possível confirmar a gravação. Confira o item no Libib."));
+    };
+    const timer = setTimeout(() => {finish(); reject(new Error("A confirmação demorou. Confira o item no Libib antes de tentar novamente."));}, 75_000);
+    window.addEventListener("message", receive);
+    window.parent.postMessage({type: "collection-to-play:apply-metadata", session: metadataSession, requestId, metadata}, origin);
+  });
+}
+apply.addEventListener("click", async () => {
+  if (!metadataMode || !selectedMetadata || apply.disabled) return;
+  busy(true); status.textContent = "Salvando título e artistas no Libib…";
+  try {
+    const result = await applyMetadata({title: selectedTitle.value, artists: selectedArtists.value.split(/\r?\n/).map(name => name.trim()).filter(Boolean)});
+    metadataSaved = result.title === "saved" && result.creators === "saved";
+    status.textContent = describeLibibApplyResult(result);
+    element("#metadata-note").hidden = true;
+    if (metadataSaved) apply.textContent = "Dados salvos";
+  } catch (error) {status.textContent = error instanceof Error ? error.message : "Não foi possível confirmar a gravação. Confira o item no Libib.";}
+  finally {busy(false);}
+});
+for (const field of [selectedTitle, selectedArtists]) field.addEventListener("input", () => {
+  metadataSaved = false;
+  apply.textContent = "Aplicar dados";
+  apply.disabled = !selectedMetadata || !metadataSession || window.parent === window;
+  element("#metadata-note").hidden = false;
+  element("#metadata-note").textContent = "Alterações ainda não aplicadas. Confira os dados antes de salvar.";
+});
 function describeQuery(): void { element("#query").textContent = `${title.value} — ${artist.value || "artista não informado"}`; }
 function icon(kind: "disc" | "app" | "web"): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -87,7 +134,36 @@ function showCandidate(album: AlbumCandidate, selectionId: string): void {
   open.className = "open-album";
   open.setAttribute("aria-label", actionLabel); open.title = actionLabel;
   open.append(target === "app" ? spotifyIcon() : icon("web"));
+  if (metadataMode) {
+    artists.hidden = true;
+    open.className = "metadata-choice";
+    open.textContent = "Selecionar álbum";
+    open.setAttribute("aria-label", `Selecionar ${album.title}`);
+    open.title = `Selecionar ${album.title}`;
+    open.setAttribute("aria-pressed", "false");
+  }
   open.addEventListener("click", async () => {
+    if (metadataMode) {
+      for (const candidate of results.querySelectorAll<HTMLElement>(".candidate")) {
+        delete candidate.dataset["selected"];
+        const button = candidate.querySelector("button");
+        button?.setAttribute("aria-pressed", "false");
+        if (button) button.textContent = "Selecionar álbum";
+      }
+      item.dataset["selected"] = "true";
+      open.setAttribute("aria-pressed", "true"); open.textContent = "Selecionado";
+      selectedTitle.value = album.title;
+      selectedArtists.value = album.artists.map(artist => artist.name).join("\n");
+      element("#metadata-selection").hidden = false;
+      selectedMetadata = {title: album.title, artists: album.artists.map(artist => artist.name)};
+      metadataSaved = false;
+      element("#metadata-note").hidden = false;
+      element("#metadata-note").textContent = "Ao aplicar, título e artistas serão salvos imediatamente no Libib.";
+      apply.textContent = "Aplicar dados";
+      busy(false);
+      status.textContent = "Álbum selecionado. Confira o título e os artistas.";
+      return;
+    }
     if (!artists.value) { status.textContent = "Escolha qual artista deseja lembrar para este item."; artists.focus(); return; }
     busy(true);
     try {
@@ -112,10 +188,10 @@ async function render(data: AlbumSearchReply): Promise<void> {
       ? "Conecte sua conta Spotify pelo ícone da extensão e depois tente novamente neste álbum."
       : resolution.message;
   } else if (resolution.status === "not-found") {
-    status.textContent = displayed.size ? "Não há outros resultados nesta página." : `Nenhum álbum encontrado. Você pode ajustar a busca ou procurar no ${serviceName}.`;
-    fallback.href = data.searchUrl; fallback.hidden = false;
+    status.textContent = displayed.size ? "Não há outros resultados nesta página." : metadataMode ? "Nenhum álbum encontrado. Ajuste a busca para tentar novamente." : `Nenhum álbum encontrado. Você pode ajustar a busca ou procurar no ${serviceName}.`;
+    fallback.href = data.searchUrl; fallback.hidden = metadataMode;
   } else {
-    if (data.autoOpen && data.selectionId && displayed.size === 0) {
+    if (!metadataMode && data.autoOpen && data.selectionId && displayed.size === 0) {
       status.textContent = "Álbum identificado. Abrindo…";
       more.hidden = true;
       element("#remember-options").hidden = true;
@@ -126,16 +202,17 @@ async function render(data: AlbumSearchReply): Promise<void> {
       } catch { /* Keep the identified album available for an explicit retry below. */ }
     }
     const candidates = resolution.status === "resolved" ? [resolution.album] : resolution.candidates;
-    if (data.selectionId) for (const candidate of candidates) showCandidate(candidate, data.selectionId);
+    if (data.selectionId || metadataMode) for (const candidate of candidates) showCandidate(candidate, data.selectionId ?? "");
     if (resolution.status === "choose") nextPage = resolution.nextPage;
-    status.textContent = nextPage ? "Confira os resultados ou carregue mais álbuns." : "Escolha o álbum que deseja abrir.";
+    status.textContent = nextPage ? "Confira os resultados ou carregue mais álbuns." : metadataMode ? "Selecione o álbum para conferir seus dados." : "Escolha o álbum que deseja abrir.";
   }
   more.hidden = !nextPage;
-  element("#remember-options").hidden = displayed.size === 0;
+  element("#remember-options").hidden = metadataMode || displayed.size === 0;
 }
 function query(): Extract<AppRequest, {type: "spotify:search"}> {
   return {type: "spotify:search", title: title.value.trim(), artist: artist.value.trim(), sourceUrl,
-    ...(params.get("title")?.trim() && params.has("artist")
+    ...(metadataMode ? {purpose: "metadata" as const} : {}),
+    ...(!metadataMode && params.get("title")?.trim() && params.has("artist")
       ? {lookupTitle: params.get("title")!, lookupArtist: params.get("artist")!} : {}),
     ...(params.get("upc") ? {upc: params.get("upc")!} : {}), ...(params.get("ean") ? {ean: params.get("ean")!} : {})};
 }
@@ -145,7 +222,7 @@ async function search(append = false): Promise<void> {
   if (append && (!lastQuery || !nextPage)) return;
   busy(true); status.textContent = "Buscando álbuns…";
   const requestedPage = nextPage;
-  if (!append) { results.replaceChildren(); displayed.clear(); remember.checked = false; nextPage = undefined; lastQuery = query(); }
+  if (!append) { results.replaceChildren(); displayed.clear(); remember.checked = false; selectedMetadata = undefined; metadataSaved = false; element("#metadata-selection").hidden = true; nextPage = undefined; lastQuery = query(); }
   describeQuery();
   try {
     const data = await request<AlbumSearchReply>({...lastQuery!, ...(append && requestedPage ? {nextPage: requestedPage} : {})});
@@ -176,11 +253,16 @@ async function initialize(): Promise<void> {
       element("h1").textContent = "Escolher álbum no YouTube Music";
       fallback.textContent = "Buscar no YouTube Music";
     }
+    if (metadataMode) {
+      destination.replaceChildren(youtubeMusic ? youtubeMusicIcon() : spotifyIcon(), document.createTextNode(`Dados do ${serviceName}`));
+      document.title = `Selecionar dados — ${serviceName}`;
+      element("h1").textContent = "Selecionar dados do álbum";
+    }
     if (!setup.preferredService) {status.textContent = "Escolha seu streaming pelo ícone da extensão e volte a este álbum."; return;}
     if (setup.preferredService !== "spotify" && !youtubeMusic) {status.textContent = "O streaming escolhido ainda não está disponível nesta versão."; return;}
     serviceReady = true;
     const resultId = params.get("result");
-    if (resultId) {
+    if (resultId && !metadataMode) {
       const initial = await request<AlbumSearchReply | null>({type: "spotify:pending", id: resultId});
       if (initial) {lastQuery = query(); await render(initial); return;}
     }

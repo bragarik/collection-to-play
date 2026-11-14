@@ -28,8 +28,21 @@
       #feedback { min-height: 1.5em; margin: 8px 0; font-size: 13px; }
       footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid #dedede; }
       footer a { display: inline-block; margin-bottom: 8px; }
-      details { margin-top: 24px; padding-top: 16px; border-top: 1px solid #dedede; }
-      summary { cursor: pointer; color: #0096b5; font-weight: 600; }
+      .settings-section { margin: 12px 0; border: 1px solid #dedede; border-radius: 10px; overflow: hidden; }
+      .settings-section > summary { display: flex; align-items: center; gap: 10px; padding: 14px; cursor: pointer; color: #03151e; font-weight: 600; list-style: none; }
+      .settings-section > summary::-webkit-details-marker { display: none; }
+      .settings-section > summary::after { content: ""; width: 7px; height: 7px; border-right: 2px solid #0096b5; border-bottom: 2px solid #0096b5; transform: rotate(45deg); flex-shrink: 0; margin-left: 2px; }
+      .settings-section[open] > summary { border-bottom: 1px solid #dedede; }
+      .settings-section[open] > summary::after { transform: rotate(225deg); }
+      .settings-section > summary:hover { background: #efefef; }
+      .section-title { flex: 1; min-width: 0; }
+      .section-content { padding: 16px; }
+      .section-content h2 { margin-top: 16px; font-size: 16px; }
+      .section-badge { max-width: 46%; padding: 3px 8px; background: #efefef; border-radius: 5px; font-size: 11px; font-weight: 500; color: #666; }
+      .section-badge[data-tone="warning"] { background: #0096b5; color: white; }
+      #open-choices { margin: 0 0 4px; }
+      #feedback:empty, #preference-feedback:empty, #libib-health-feedback:empty { display: none; }
+      select { font: inherit; }
       #results { padding-left: 20px; }
       #results li { margin-bottom: 12px; overflow-wrap: anywhere; }
       #connection-status, #search-feedback { overflow-wrap: anywhere; }
@@ -53,6 +66,13 @@
       .choices-pagination { display: flex; align-items: center; gap: 8px; position: sticky; bottom: 0; padding: 12px 0; background: white; border-top: 1px solid #dedede; }
       .choices-pagination button { width: auto; margin: 0; padding: 8px 12px; }
       #choices-page { flex: 1; text-align: center; font-size: 12px; }
+      #libib-health-summary { padding: 12px; border: 1px solid #dedede; border-left: 4px solid #4bc1d2; border-radius: 7px; font-size: 13px; }
+      #libib-health-summary[data-tone="warning"] { background: #efefef; border-left-color: #0096b5; font-weight: 600; }
+      #libib-health-checks { padding-left: 18px; font-size: 13px; }
+      #libib-health-checks li { margin: 8px 0; }
+      .diagnostic-actions { display: flex; gap: 8px; }
+      .diagnostic-actions button { flex: 1; font-size: 13px; }
+      #libib-health-feedback { font-size: 13px; }
       [hidden] { display: none !important; }
     </style>
     <script type="module" src="setup.js"></script>
@@ -64,7 +84,9 @@
       <p id="status" class="status" role="status">Carregando configuração…</p>
     </header>
     <main>
-      <h2>Seu streaming</h2>
+      <details id="streaming-section" class="settings-section" open>
+        <summary><span class="section-title">Streaming e conexão</span><span id="streaming-section-label" class="section-badge">Carregando…</span></summary>
+        <div class="section-content">
       <p id="first-use" class="note">Escolha o serviço que deseja usar. Nenhum streaming foi selecionado automaticamente.</p>
       <form id="streaming-settings">
         <label for="preferred-streaming">Streaming</label>
@@ -82,6 +104,8 @@
 
       </section>
       <p id="youtube-connection" class="note" hidden>YouTube Music: a busca de álbuns dispensa login. Os álbuns abrem pelo navegador.</p>
+        </div>
+      </details>
       <button id="open-choices" type="button" aria-haspopup="dialog" aria-controls="choices-dialog">Escolhas salvas</button>
       <dialog id="choices-dialog" aria-labelledby="choices-title">
       <div class="dialog-header">
@@ -101,8 +125,23 @@
       <p id="choices-feedback" role="status" aria-live="polite"></p>
       </div>
       </dialog>
-      <details id="search-diagnostics">
-      <summary>Diagnóstico de busca</summary>
+      <details id="libib-health" class="settings-section">
+        <summary><span id="libib-health-title" class="section-title">Biblioteca Libib</span><span id="libib-health-badge" class="section-badge" aria-live="polite">Verificando…</span></summary>
+        <div class="section-content">
+        <p id="libib-health-summary" role="status" aria-live="polite">Carregando diagnóstico…</p>
+        <ul id="libib-health-checks"></ul>
+        <p id="libib-health-meta" class="note"></p>
+        <p class="note">Mostra a última avaliação registrada. Reconhecer a estrutura não garante o funcionamento de todas as operações.</p>
+        <div class="diagnostic-actions">
+          <button id="refresh-libib-diagnostics" type="button">Atualizar informações</button>
+          <button id="export-libib-diagnostics" type="button" disabled>Exportar diagnóstico Libib</button>
+        </div>
+        <p id="libib-health-feedback" role="status" aria-live="polite"></p>
+        </div>
+      </details>
+      <details id="search-diagnostics" class="settings-section">
+      <summary><span class="section-title">Diagnóstico de busca</span></summary>
+      <div class="section-content">
       <h2>Testar busca de álbum</h2>
       <form id="album-search">
         <label for="album-title">Álbum</label>
@@ -121,10 +160,12 @@
       <p id="export-feedback" class="note" role="status"></p>
       <p class="note">Esta busca é para diagnóstico. Para escolher e lembrar um álbum da coleção, use o botão no próprio Libib.</p>
 
+      </div>
       </details>
 
-      <details>
-      <summary>Dados do aplicativo e endereço de retorno</summary>
+      <details id="technical-settings" class="settings-section">
+      <summary><span class="section-title">Dados técnicos do Spotify</span></summary>
+      <div class="section-content">
       <p class="note">O Client ID identifica Collection to Play, não sua conta. Em Settings no Spotify, Redirect URIs deve conter exatamente o endereço abaixo.</p>
 
       <label for="client-id">Client ID do Spotify</label>
@@ -137,10 +178,11 @@
       <label for="extension-id">ID da extensão</label>
       <input id="extension-id" readonly spellcheck="false" autocomplete="off">
 
+      <p class="note"><a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer">Abrir Spotify Developer Dashboard</a></p>
+      </div>
       </details>
     </main>
     <footer>
-      <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer">Abrir Spotify Developer Dashboard</a><br>
       <a id="open-library" href="https://www.libib.com/library" target="_blank" rel="noopener noreferrer">Abrir biblioteca no Libib</a>
     </footer>
   </body>
