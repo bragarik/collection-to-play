@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { createPkce, SpotifyClient, spotifySearchUrl } from "../dist/spotify.js";
-import { searchAlbums } from "../dist/resolution.js";
+import { createPkce, SpotifyClient, spotifySearchUrl } from "../src/streamings/spotify.ts";
+import { searchAlbums } from "../src/albums/resolution.ts";
 
 const redirect = "https://ajjfighekaafaklemaophkbfckidiphl.chromiumapp.org/spotify";
 const query = { title: "Discovery", artist: "Daft Punk", source: { catalogId: "libib", itemUrl: "https://www.libib.com/library" } };
@@ -418,7 +418,9 @@ test("capa usa imagem HTTPS do Spotify com tamanho adequado para o card", async 
     {url: "https://i.scdn.co/image/large", width: 640}, {url: "https://i.scdn.co/image/small", width: 64},
     {url: "https://i.scdn.co/image/medium", width: 160},
   ]}])});
-  assert.equal((await value.client.search(query))[0].artworkUrl, "https://i.scdn.co/image/medium");
+  const result = (await value.client.search(query))[0];
+  assert.equal(result.artworkUrl, "https://i.scdn.co/image/medium");
+  assert.deepEqual(result.artworkVariants.map(image => image.width), [640, 64, 160]);
 });
 
 test("capa inválida, ausente ou de outro domínio não impede a busca", async () => {

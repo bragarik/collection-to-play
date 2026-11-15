@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {LibibEditClient} from "../dist/libib-edit.js";
-import {applyLibibMetadata, prepareAlbumMetadata, isLibibApplyResult, describeLibibApplyResult} from "../dist/libib-metadata.js";
+import {LibibEditClient} from "../src/libib/libib-edit.ts";
+import {applyLibibMetadata, applyLibibPatch, isLibibPatchResult, describeLibibPatchResult, prepareAlbumMetadata, isLibibApplyResult, describeLibibApplyResult} from "../src/libib/libib-metadata.ts";
 
 const target = {joinId: "101", libraryId: "202"};
 const metadata = {title: "Álbum do streaming", artists: ["Primeiro artista", "Segundo artista"]};
@@ -109,4 +109,65 @@ test("IDs são copiados para não mudar o destino durante a aplicação", async 
 test("valida resultado da ponte e rejeita estados incompatíveis ou valores não textuais", () => {
   for (const value of [{title: "saved", creators: "saved"}, {title: "saved", creators: "not-saved"}, {title: "unconfirmed", creators: "not-saved"}]) assert.equal(isLibibApplyResult(value), true);
   for (const value of [null, {}, {title: ["saved"], creators: "saved"}, {title: "not-saved", creators: "saved"}, {title: "unknown", creators: "not-saved"}]) assert.equal(isLibibApplyResult(value), false);
+});
+
+const image = () => new File([Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,0])], 'cover.png', {type: 'image/png'});
+const confirmed = {confirmed: true, writeMayHaveOccurred: true};
+
+test("patch aplica título ou artistas isoladamente sem exigir o outro campo", async () => {
+  for (const [patch, expected] of [[{title: ' Novo título '}, ['title','Novo título']], [{artists: [' A ', 'B', 'A']}, ['creators','A, B']]]) {
+    const calls=[];
+    const result=await applyLibibPatch(patch, async (...args)=>{calls.push(args);return confirmed;});
+    assert.deepEqual(calls,[expected]);assert.deepEqual(result.fields,{[expected[0]]:'saved'});assert.equal(result.nativeUpdated,true);
+  }
+});
+
+test("patch de capa sozinha valida bytes e decode antes do único envio", async () => {
+  const previous=globalThis.createImageBitmap;let closed=0;globalThis.createImageBitmap=async()=>({width:1,height:1,close(){closed++;}});
+  try {
+    const file=image(),calls=[];
+    const result=await applyLibibPatch({artwork:file},async(...args)=>{calls.push(args);return confirmed;});
+    assert.deepEqual(calls,[['image',file]]);assert.deepEqual(result.fields,{image:'saved'});assert.equal(closed,1);
+    assert.match(describeLibibPatchResult(result),/Capa: salvo/);
+  } finally {globalThis.createImageBitmap=previous;}
+});
+
+test("patch inteiro é validado antes de escrever qualquer campo", async () => {
+  let sends=0;const send=async()=>{sends++;return confirmed;};
+  for(const patch of [null,{},[],{title:'ok',artists:[]},{title:'ok',artists:['a,b']},{title:'ok',artwork:new File(['invalid'],'x.png')},{title:'ok',unknown:'x'},{title:undefined},{title:'a'.repeat(513)}]) await assert.rejects(applyLibibPatch(patch,send));
+  assert.equal(sends,0);
+});
+
+test("arquivo grande, corrompido ou com dimensões inválidas impede todos os envios", async () => {
+  const previous=globalThis.createImageBitmap;let sends=0;
+  try {
+    for(const decode of [async()=>{throw Error('corrupt');},async()=>({width:0,height:1,close(){}})]) {
+      globalThis.createImageBitmap=decode;
+      await assert.rejects(applyLibibPatch({title:'ok',artwork:image()},async()=>{sends++;return confirmed;}));
+    }
+    await assert.rejects(applyLibibPatch({artwork:new File([new Uint8Array(20_000_001)],'big.png')},async()=>{sends++;return confirmed;}));
+    assert.equal(sends,0);
+  } finally {globalThis.createImageBitmap=previous;}
+});
+
+test("falha parcial interrompe os campos restantes sem repetir os já confirmados", async () => {
+  const previous=globalThis.createImageBitmap;globalThis.createImageBitmap=async()=>({width:320,height:300,close(){}});
+  try {
+    const calls=[];
+    const result=await applyLibibPatch({title:'Title',artists:['Artist'],artwork:image()},async(field)=>{calls.push(field);return field==='title'?confirmed:{confirmed:false,writeMayHaveOccurred:true,code:'http'};});
+    assert.deepEqual(calls,['title','creators']);assert.deepEqual(result.fields,{title:'saved',creators:'unconfirmed',image:'not-saved'});
+    assert.match(describeLibibPatchResult(result),/Título: salvo.*Artistas: gravação sem confirmação.*Capa: não enviado/);
+  } finally {globalThis.createImageBitmap=previous;}
+});
+
+test("cancelamento antes do campo e exceção incerta são reportados sem sucesso falso", async () => {
+  const blocked=await applyLibibPatch({artists:['A']},async()=>({confirmed:false,writeMayHaveOccurred:false,code:'cancelled'}));
+  assert.deepEqual(blocked,{fields:{creators:'not-saved'},nativeUpdated:false});
+  const uncertain=await applyLibibPatch({title:'T',artists:['A']},async()=>{throw Error('lost response');});
+  assert.deepEqual(uncertain.fields,{title:'unconfirmed',creators:'not-saved'});
+});
+
+test("contrato seletivo aceita apenas campos conhecidos e estados escalares", () => {
+  assert.equal(isLibibPatchResult({fields:{image:'saved'},nativeUpdated:true}),true);
+  for(const value of [null,{fields:{},nativeUpdated:false},{fields:{notes:'saved'},nativeUpdated:true},{fields:{title:['saved']},nativeUpdated:true},{fields:{title:'saved'}}]) assert.equal(isLibibPatchResult(value),false);
 });

@@ -1,0 +1,19 @@
+:root { color-scheme: light; font: 14px/1.5 system-ui,sans-serif; color: var(--color-base-content); background: var(--color-base-100); }
+* { box-sizing: border-box; } body { margin: 0; padding: 18px; }
+h1 { font-size: 20px; margin: 0 0 6px; letter-spacing: -.4px; } h2 { font-size: 15px; margin: 0 0 4px; }
+p { margin: 6px 0 12px; overflow-wrap: anywhere; }
+#destination { display: inline-flex; gap: 6px; height: auto; padding: 4px 9px; margin-bottom: 12px; }
+.spotify-icon { width: 24px; height: 24px; flex-shrink: 0; object-fit: contain; }
+#query, .candidate-artists, .release-date, .note { color: #52636b; }
+#results { list-style: none; padding: 4px; } .candidate { padding: 16px; margin-bottom: 12px; overflow-wrap: anywhere; }
+.candidate:hover, .candidate:focus-within { border-color: var(--color-primary); }
+.candidate-header { display: flex; align-items: center; gap: 12px; } .candidate-info { flex: 1; min-width: 0; }
+.album-art { flex: 0 0 56px; width: 56px; height: 56px; object-fit: contain; border-radius: var(--radius-box); background: var(--color-base-200); }
+.artwork-placeholder { display: grid; place-items: center; color: var(--color-primary); font-size: 24px; }
+.candidate-artists { font-size: 13px; margin: 0; } .release-date { font-size: 11px; margin-top: 6px; }
+.candidate-action { display: flex; justify-content: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--color-base-200); }
+.open-album svg { width: 19px; height: 19px; } .candidate select { margin-top: 12px; }
+:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
+label { display: block; margin: 8px 0; } #remember-options label { display: flex; gap: 8px; align-items: center; }
+.note { font-size: 12px; } details { margin-top: 16px; } summary, a { color: var(--color-primary); } summary { cursor: pointer; }
+form .btn { margin-top: 12px; } [hidden] { display: none !important; }

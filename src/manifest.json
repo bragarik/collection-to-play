@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Collection to Play",
-  "version": "0.2.13",
+  "version": "0.2.29",
   "description": "Abra álbuns da sua coleção no streaming escolhido. Integração inicial com Libib.",
   "minimum_chrome_version": "120",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkFe44HoxjZY822GIvhr4IcN+gBa8PY1dXC2OLJD4XF1DU7ezbd2yl6UF4sUyOjZgQxt/gxJAx1Y3HFF93vsFul7P4YKHrqT6HWu5hCBY6I6bgsqcSZ1VVnsQTLW85U4BiTvVM6KvC1nBifhGxq2YA48wMU6+gvCs8qd8SIMEx5xr1DGzy8ig+GR1c+IC9hKlTg5LSBSpclmQ2rH1gLVPO6f4mVP5c6zVvt4PXhh9wnBC6Xt94Hmjuxj4yBFBxmunf0bL6lprBg4yK6cC1WbvxQF9AvrmpJBG8IPIMuhJpdWEMGIKM2nLWtEuDx+5bulxH3YW5TkEzG+VWg2WlRYKpwIDAQAB",
@@ -13,10 +13,14 @@
   "host_permissions": [
     "https://accounts.spotify.com/*",
     "https://api.spotify.com/*",
-    "https://music.youtube.com/*"
+    "https://music.youtube.com/*",
+    "https://i.scdn.co/*",
+    "https://lh3.googleusercontent.com/*",
+    "https://yt3.googleusercontent.com/*",
+    "https://i.ytimg.com/*"
   ],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "entrypoints/background.ts",
     "type": "module"
   },
   "action": {
@@ -33,7 +37,7 @@
         "https://www.libib.com/library*"
       ],
       "js": [
-        "libib-native-entry.js"
+        "entrypoints/libib-native-entry.ts"
       ],
       "run_at": "document_idle",
       "world": "MAIN"
@@ -43,7 +47,7 @@
         "https://www.libib.com/library*"
       ],
       "js": [
-        "library.js"
+        "entrypoints/library.ts"
       ],
       "run_at": "document_idle"
     }
@@ -52,9 +56,11 @@
     {
       "resources": [
         "album-panel.html",
+        "metadata-editor.html",
         "library.css",
-        "spotify-icon.svg",
-        "youtube-music-icon.png"
+        "assets/spotify-icon.svg",
+        "assets/youtube-music-icon.png",
+        "ui.css"
       ],
       "matches": [
         "https://www.libib.com/*"

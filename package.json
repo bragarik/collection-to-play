@@ -1,22 +1,29 @@
 {
   "name": "collection-to-play",
-  "version": "0.2.13",
+  "version": "0.2.29",
   "private": true,
   "description": "Open albums from your collection in your preferred streaming service.",
   "license": "GPL-3.0",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "scripts": {
-    "typecheck": "node scripts/build.mjs --typecheck",
-    "build": "node scripts/build.mjs",
-    "test": "npm run build && node tests/resolution.test.mjs && node tests/spotify.test.mjs && node tests/opening.test.mjs && node tests/preferences.test.mjs && node tests/youtube-music.test.mjs && node tests/libib-diagnostics.test.mjs && node tests/libib-observer.test.mjs && node tests/libib-edit.test.mjs && node tests/libib-metadata.test.mjs && node tests/libib-native.test.mjs"
+    "dev": "vite build --watch",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && node --import tsx --test"
   },
   "devDependencies": {
+    "@crxjs/vite-plugin": "3.0.0",
+    "@preact/preset-vite": "2.10.6",
+    "@tailwindcss/vite": "4.3.5",
     "@types/chrome": "0.3.7",
-    "esbuild": "0.28.2",
-    "typescript": "7.0.2"
+    "daisyui": "5.8.0",
+    "tailwindcss": "4.3.5",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
   },
   "author": "Ricardo (bragarik)",
   "repository": {
@@ -26,5 +33,8 @@
   "bugs": {
     "url": "https://github.com/bragarik/collection-to-play/issues"
   },
-  "homepage": "https://github.com/bragarik/collection-to-play"
+  "homepage": "https://github.com/bragarik/collection-to-play",
+  "dependencies": {
+    "preact": "^11.2.0"
+  }
 }

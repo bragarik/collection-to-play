@@ -16,7 +16,7 @@ indisponíveis na configuração. Outros catálogos ainda não estão implementa
 
 ## Instalação local
 
-Requisitos: Node.js 22 ou superior, npm, Git e Chrome 120 ou superior.
+Requisitos: Node.js 22.12 ou superior, npm, Git e Chrome 120 ou superior.
 Para abrir no aplicativo, o Spotify precisa estar instalado no computador.
 
 1. Baixe e compile o projeto:
@@ -87,33 +87,50 @@ Quando o catálogo não fornece ID próprio do item, a lembrança usa a origem,
 título, artista e códigos disponíveis. Itens com esses mesmos dados podem ser
 indistinguíveis. O projeto não presume um ID interno do Libib que não foi verificado.
 
-### Atualizar título e artistas de um item
+### Compor dados de um álbum
 
-Na edição de um item de música do Libib, a lista de campos inclui
-"Atualizar dados via Spotify" ou "Atualizar dados via YouTube Music", conforme
-o streaming configurado. A opção abre a busca dentro da página e permite
-selecionar um álbum para conferir título e artistas, com capas e paginação.
-A opção aparece no início da lista, com um destaque turquesa suave.
-Você pode ajustar a busca se necessário.
+Na edição rápida ou em **Detalhes → Editar**, use **Atualizar dados via streaming**.
+Na edição rápida, a opção fica no início da lista; na completa, imediatamente à
+esquerda de **Salvar**, mantendo o estilo dos botões nativos.
 
-Essa seleção consulta o serviço novamente, sem reutilizar o álbum lembrado para
-ouvir. Ela não abre player nem altera as escolhas salvas. Na prévia, você pode
-editar o título e os artistas antes de salvar; informe um artista por linha.
-Clique em **Aplicar dados** para salvar os valores editados imediatamente, sem outro clique
-no botão Salvar do Libib. A ordenação personalizada do título é preservada.
-O salvamento usa o fluxo nativo do Libib para manter seus campos e a listagem sincronizados.
+Escolha Spotify ou YouTube Music no combo, busque e adicione um álbum. Você pode
+manter um álbum de cada serviço nos cards. Se precisar trocar uma edição, remova
+o card daquele serviço e adicione outro. Os dados já copiados ficam no formulário.
 
-Os campos são enviados separadamente. A confirmação informa quando ambos foram
-salvos ou quando um campo não pôde ser confirmado; nesse caso, confira o item
-antes de tentar novamente. Os campos nativos recebem os valores confirmados e,
-ao fechar a edição do Libib, o próprio site atualiza o álbum na listagem.
-Se a atualização visual não puder ser confirmada, o painel orienta reabrir o item.
-Durante o envio, aguarde a confirmação antes de fechar o painel.
+Selecione um card para consultar título, artistas e capa. Use **+** para substituir
+um campo no formulário principal ou **+ todos** para copiar os dados disponíveis.
+Você pode combinar fontes, por exemplo título do Spotify e capa do YouTube Music.
+O formulário mostra a origem de cada campo; os textos continuam editáveis e os
+artistas são apresentados um por linha. Desmarque um campo para mantê-lo no Libib.
+Adicionar, consultar ou copiar um card não grava alterações.
 
-Nomes de artistas com vírgulas, aspas ou quebras de linha exigem edição manual pelo
-campo nativo: o formato de escape desses nomes ainda não está confirmado. A extensão
-avisa antes de alterar qualquer campo. A preservação das lembranças após renomear
-ainda está em desenvolvimento.
+A capa mostra largura, altura, formato e peso. A extensão usa a maior variante
+válida obtida, até 20 MB. Imagens abaixo de 300 × 300 pixels podem ser usadas com
+aviso. A prévia copiada permanece disponível mesmo depois de remover seu card.
+
+Na **edição completa**, **Preencher campos** prepara apenas os campos marcados,
+inclusive somente a capa, e fecha o painel da extensão. Você conclui a gravação
+pelo **Salvar do Libib**. Campos desmarcados, descrição, preço, tags, grupo, notas,
+ordenação e rascunhos permanecem como estão. Um arquivo de capa já escolhido só
+é substituído se você aplicar uma nova capa.
+
+Na **edição rápida**, **Aplicar dados** salva imediatamente apenas os campos
+marcados, inclusive somente a capa. A ordenação personalizada é preservada.
+Cada campo é confirmado separadamente; uma falha interrompe os próximos envios.
+Quando todos os campos escolhidos são confirmados, o popup de streaming fecha.
+Se houver falha parcial ou resultado sem confirmação, ele continua aberto com o
+aviso e desmarca os campos confirmados, mantendo os valores. Confira o item antes
+de uma nova tentativa. Ao fechar a edição rápida, o Libib atualiza
+a listagem usando seu fluxo nativo.
+
+Nomes de artistas com vírgulas, aspas ou quebras de linha exigem edição pelo campo
+nativo, pois o formato de escape ainda não foi confirmado. A extensão avisa antes
+de alterar os campos escolhidos.
+
+Se o Spotify exigir conexão, o painel oferece **Abrir configurações** e
+**Verificar conexão**. Busca, cards e dados montados são preservados ao reconectar.
+A escolha no combo não muda o streaming preferido para ouvir. Essas buscas não
+abrem player nem alteram as escolhas lembradas.
 
 ## Conectar ao Spotify
 
@@ -141,9 +158,11 @@ Depois de atualizar os fontes:
 ```bash
 npm ci
 npm test
+npm run build
 ```
 
-npm test verifica os tipos, compila para dist e executa os testes automatizados.
+npm test verifica os tipos e executa os testes automatizados diretamente nos fontes.
+O pacote é gerado separadamente por npm run build, usando Vite + CRXJS.
 Para apenas verificar tipos: npm run typecheck.
 Para apenas compilar: npm run build.
 
@@ -194,8 +213,15 @@ log de busca do streaming. A exportação inclui data, versões, avaliações e 
 filtrados, sem títulos, artistas, corpos de resposta ou autenticação.
 
 O diagnóstico representa a última avaliação registrada, não uma garantia sobre
-todas as abas abertas. Os resultados da atualização de título e artistas aparecem
-no painel de aplicação e ainda não integram este diagnóstico.
+todas as abas abertas. O histórico registra leituras e resultados da gravação de
+cada campo pela edição rápida, incluindo falhas parciais e respostas sem confirmação.
+A configuração avisa quando a última tentativa de uma etapa falhou; uma tentativa
+confirmada posterior da mesma etapa resolve esse aviso. Cancelar antes do envio
+não é apresentado como falha do Libib.
+
+Na edição completa, registra apenas o preenchimento dos campos. O salvamento
+posterior pelo botão nativo do Libib não é acompanhado pela extensão. O diagnóstico
+não guarda valores dos campos, IDs dos itens ou endereços da biblioteca.
 
 ## Dados e permissões
 
@@ -209,6 +235,9 @@ no painel de aplicação e ainda não integram este diagnóstico.
 - A autorização Spotify e sua pesquisa usam accounts.spotify.com e api.spotify.com.
   YouTube Music consulta music.youtube.com sem cookies. Capas válidas são carregadas
   de i.scdn.co, lh3.googleusercontent.com, yt3.googleusercontent.com ou i.ytimg.com.
+  O acesso a esses CDNs também permite obter arquivos de capa sem cookies ou
+  autenticação. Esses arquivos são temporários e não são gravados no catálogo
+  automaticamente.
 - Os dados necessários à pesquisa são enviados ao streaming escolhido. Não há backend próprio,
   serviço de telemetria ou upload automático dos diagnósticos neste projeto.
 - O content script atua somente na biblioteca Libib suportada. A extensão solicita
@@ -216,8 +245,8 @@ no painel de aplicação e ainda não integram este diagnóstico.
   e YouTube Music indicados no manifesto. A regra de rede remove o cabeçalho Origin
   somente de POSTs da própria extensão ao endpoint de busca YouTube Music; não
   altera navegação normal do usuário nem chamadas Spotify.
-- Uma integração local aciona os handlers nativos de título/artistas e confere
-  suas respostas. O próprio Libib atualiza seus campos e a listagem ao fechar a edição. Esse script
+- Na edição rápida, uma integração local aciona os handlers nativos de título,
+  artistas e capa e confere suas respostas. O próprio Libib atualiza seus campos e a listagem ao fechar a edição. Esse script
   não recebe tokens Spotify nem acessa o armazenamento da extensão.
 
 ## Contribuição e estrutura

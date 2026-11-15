@@ -1,19 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseNativeSaveRequest,isNativeSaveOutcome,saveLibibNativeField,registerLibibNativeBridge} from '../dist/libib-native.js';
-import {isLibibApplyResult,describeLibibApplyResult} from '../dist/libib-metadata.js';
+import {parseNativeSaveRequest,isNativeSaveOutcome,saveLibibNativeField,registerLibibNativeBridge} from '../src/libib/libib-native.ts';
+import {isLibibApplyResult,describeLibibApplyResult} from '../src/libib/libib-metadata.ts';
 
 const request={joinId:'101',libraryId:'202',field:'title',value:'Novo título',titleOverride:'Ordenação'};
 const classes=()=>{const values=new Set();return {add:x=>values.add(x),remove:x=>values.delete(x),contains:x=>values.has(x)};};
 function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHandler=false}={}){
  const handlers=new Map(),bodies=[];let selected,inputs=[],privateSaved;const privateItem={title:'Anterior',creators:['Anterior'],title_override:'Ordenação'};
- const titleField={kind:'field',field:'title'},creatorField={kind:'field',field:'creators'},save={kind:'save',disabled:false,classList:classes()},close={classList:classes()};
- const form={querySelector:s=>inputs.find(input=>s.includes('"'+input.name+'"')),querySelectorAll:s=>s.includes('button')?[...inputs,save]:inputs};
+ const imageField={kind:'field',field:'image'},titleField={kind:'field',field:'title'},creatorField={kind:'field',field:'creators'},save={kind:'save',disabled:false,classList:classes()},close={classList:classes()};
+ const form={querySelector:s=>inputs.find(input=>s.includes('"'+input.name+'"')),querySelectorAll:s=>s.includes('button')?[...inputs,save]:s.includes('input[name=')?inputs.filter(input=>s.includes('"'+input.name+'"')):inputs};
  const root={isConnected:true,dataset:{joinId:'101',libraryId:'202',itemType:'music'},getClientRects:()=>[1],
-  querySelector:s=>s==='#quick-edit-form'?form:s==='#jump-cover-save'?save:s.includes('data-key="title"')?titleField:s.includes('data-key="creators"')?creatorField:undefined,
+  querySelector:s=>s==='#quick-edit-form'?form:s==='#jump-cover-save'?save:s.includes('data-key="title"')?titleField:s.includes('data-key="creators"')?creatorField:s.includes('data-key="image"')?imageField:undefined,
   querySelectorAll:()=>close.classList.contains('disabled')?[close]:[]};
  const roots=[root],listeners=new Map(),replies=[];
- const document={querySelectorAll:()=>roots,defaultView:{getComputedStyle:()=>({visibility:'visible'})}};
+ const document={querySelectorAll:()=>roots,defaultView:{getComputedStyle:()=>({visibility:'visible'}),DataTransfer:class {items={add:file=>this.files.push(file)};files=[];}}};
  const page={document,location:{href:'https://www.libib.com/library',origin:'https://www.libib.com'},addEventListener:(name,fn)=>listeners.set(name,fn),postMessage:value=>replies.push(value)};
  const emit=(name,xhr,settings)=>{for(const [event,fn] of [...handlers])if(event.startsWith(name+'.'))fn({},xhr,settings);};
  let capturedXHR,completion;
@@ -23,20 +23,21 @@ function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHa
   trigger:()=>{
    if(target.kind==='field'){
     selected=target.field;inputs=[{name:selected,value:String(privateItem[selected]),disabled:false}];
+    if(selected==='image')inputs=[{name:'image',type:'file',disabled:false,isConnected:true,form,classList:classes(),files:[]}];
     if(selected==='title')inputs.push({name:'title_override',value:privateItem.title_override,disabled:false});return;
    }
    if(target.kind!=='save'||noHandler)return;
-   const data=new FormData();data.set('join_id','101');data.set('library_id','202');data.set('item_type','music');for(const input of inputs)data.set(input.name,input.value.trim());
+   const data=new FormData();data.set('join_id','101');data.set('library_id','202');data.set('item_type','music');for(const input of inputs)if(input.type==='file')data.set('image-0',input.files[0]);else data.set(input.name,input.value.trim());
    const settings={url:'/quickedit/update-field/submit',type:'POST',data};bodies.push(Object.fromEntries(data));
    const xhr={status,responseText:raw??JSON.stringify({outcome}),abort(){this.status=0;emit('ajaxComplete',this,settings);}};capturedXHR=xhr;
    for(const input of inputs)input.disabled=true;save.disabled=true;save.classList.add('loading');close.classList.add('disabled');
    if(unrelated)emit('ajaxSend',{status:200,responseText:'{}'}, {...settings,url:'/another-endpoint'});
    emit('ajaxSend',xhr,settings);
-   completion=()=>{if(status>=200&&status<300&&outcome==='success'&&raw===undefined){privateSaved=true;for(const input of inputs)privateItem[input.name]=input.value.trim();for(const input of inputs)input.disabled=false;save.disabled=false;save.classList.remove('loading');close.classList.remove('disabled');}emit('ajaxComplete',xhr,settings);};
+   completion=()=>{if(status>=200&&status<300&&outcome==='success'&&raw===undefined){privateSaved=true;for(const input of inputs)if(input.type!=='file')privateItem[input.name]=input.value.trim();for(const input of inputs)input.disabled=false;save.disabled=false;save.classList.remove('loading');close.classList.remove('disabled');}emit('ajaxComplete',xhr,settings);};
    if(!hold)queueMicrotask(completion);
   }
  });
- return {page,jquery,root,roots,save,close,handlers,bodies,replies,listeners,snapshot:()=>({item:structuredClone(privateItem),saved:privateSaved}),complete:()=>completion(),get xhr(){return capturedXHR;}};
+ return {page,jquery,root,roots,get inputs(){return inputs;},save,close,handlers,bodies,replies,listeners,snapshot:()=>({item:structuredClone(privateItem),saved:privateSaved}),complete:()=>completion(),get xhr(){return capturedXHR;}};
 }
 const signal=()=>new AbortController().signal;
 
@@ -93,4 +94,54 @@ test('retorno validado separa confirmação de gravação e confirmação visual
  assert.equal(isNativeSaveOutcome({confirmed:false,writeMayHaveOccurred:true,code:'unknown'}),false);
  assert.equal(isNativeSaveOutcome({confirmed:true,writeMayHaveOccurred:true,httpStatus:999}),false);
  const updated={title:'saved',creators:'saved',nativeUpdated:true};assert.equal(isLibibApplyResult(updated),true);assert.match(describeLibibApplyResult(updated),/listagem.*fechar a edição/);
+});
+
+const imageRequest=()=>({...request,field:'image',value:new File([Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,0])],'cover.png',{type:'image/png'})});
+test('capa usa FileList e handler nativo com image-0 sem alterar textos ou ordenação',async()=>{
+ const previous=globalThis.createImageBitmap;globalThis.createImageBitmap=async()=>({width:1,height:1,close(){}});
+ try {
+  const value=setup(),input=imageRequest();const outcome=await saveLibibNativeField(value.page,value.jquery,input,signal());
+  assert.equal(outcome.confirmed,true);assert.equal(value.bodies.length,1);assert.equal(value.bodies[0]['image-0'].size,input.value.size);
+  assert.equal(value.bodies[0].title,undefined);assert.deepEqual(value.snapshot().item,{title:'Anterior',creators:['Anterior'],title_override:'Ordenação'});
+ } finally {globalThis.createImageBitmap=previous;}
+});
+test('capa inválida ou controle bloqueado não dispara salvamento',async()=>{
+ const previous=globalThis.createImageBitmap;globalThis.createImageBitmap=async()=>({width:300,height:300,close(){}});
+ try {
+  for(const file of [null,'url',new File(['bad'],'bad.png'),new File([],'empty.png')]){
+   const value=setup();assert.equal((await saveLibibNativeField(value.page,value.jquery,{...request,field:'image',value:file},signal())).confirmed,false);assert.equal(value.bodies.length,0);
+  }
+  const value=setup();value.page.document.defaultView.DataTransfer=undefined;
+  assert.equal((await saveLibibNativeField(value.page,value.jquery,imageRequest(),signal())).writeMayHaveOccurred,false);assert.equal(value.bodies.length,0);
+ } finally {globalThis.createImageBitmap=previous;}
+});
+test('troca de item ou cancelamento durante decode da capa impede envio',async()=>{
+ const previous=globalThis.createImageBitmap;
+ try {
+  for(const change of ['item','abort','replace']){
+   const value=setup(),controller=new AbortController();
+   globalThis.createImageBitmap=async()=>{if(change==='item')value.root.dataset.joinId='999';else if(change==='replace')value.roots[0]={...value.root};else controller.abort();return {width:1,height:1,close(){}};};
+   assert.equal((await saveLibibNativeField(value.page,value.jquery,imageRequest(),controller.signal)).confirmed,false);assert.equal(value.bodies.length,0);
+  }
+ } finally {globalThis.createImageBitmap=previous;}
+});
+test('falha ou resposta inválida no upload nunca confirma capa e libera controles',async()=>{
+ const previous=globalThis.createImageBitmap;globalThis.createImageBitmap=async()=>({width:300,height:300,close(){}});
+ try {
+  for(const options of [{status:500},{raw:'<html>login</html>'},{outcome:'error'}]){
+   const value=setup(options);const result=await saveLibibNativeField(value.page,value.jquery,imageRequest(),signal());
+   assert.equal(result.confirmed,false);assert.equal(result.writeMayHaveOccurred,true);assert.equal(value.inputs[0].disabled,false);assert.equal(value.handlers.size,0);
+  }
+ } finally {globalThis.createImageBitmap=previous;}
+});
+
+test('capa não escreve se o handler abrir controle inválido ou campos adicionais',async()=>{
+ const previous=globalThis.createImageBitmap;globalThis.createImageBitmap=async()=>({width:300,height:300,close(){}});
+ try {
+  for(const mutate of [inputs=>{inputs[0].disabled=true;},inputs=>{inputs[0].type='text';},inputs=>{inputs[0].classList.add('no-post');},inputs=>{inputs.push({...inputs[0]});},inputs=>{inputs.push({name:'notes',value:'preserve'});}]){
+   const value=setup(),original=value.jquery;
+   value.jquery=target=>{const selected=original(target);return {...selected,trigger:(...args)=>{selected.trigger(...args);if(target.kind==='field')mutate(value.inputs);}};};
+   const result=await saveLibibNativeField(value.page,value.jquery,imageRequest(),signal());assert.equal(result.writeMayHaveOccurred,false);assert.equal(value.bodies.length,0);
+  }
+ } finally {globalThis.createImageBitmap=previous;}
 });

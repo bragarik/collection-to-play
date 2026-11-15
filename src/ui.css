@@ -1,0 +1,26 @@
+/* Shared extension UI stylesheet; pages opt in by linking the compiled ui.css. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "./";
+@source inline("btn btn-primary input select textarea checkbox card card-body alert alert-info badge loading fieldset flex flex-col gap-2");
+
+@plugin "daisyui" {
+  themes: light --default;
+  include: button, input, select, textarea, checkbox, card, alert, badge, loading, fieldset;
+  logs: false;
+}
+
+/* Shared brand tokens for extension pages that opt into this stylesheet. */
+@layer base {
+  :root, :host, [data-theme="light"] {
+    --color-primary: #007b92;
+    --color-primary-content: #ffffff;
+    --radius-field: 0.5rem;
+    --radius-box: 0.75rem;
+  }
+}
+
+@layer components {
+  .artwork-placeholder { display: grid; place-items: center; color: var(--color-primary); }
+}

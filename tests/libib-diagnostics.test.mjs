@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {assessLibibCompatibility, sanitizeLibibDiagnosticEvent, appendLibibDiagnostic, LIBIB_DIAGNOSTIC_LIMIT} from "../dist/libib-diagnostics.js";
+import {assessLibibCompatibility, sanitizeLibibDiagnosticEvent, appendLibibDiagnostic, LIBIB_DIAGNOSTIC_LIMIT} from "../src/libib/libib-diagnostics.ts";
 
 const ready = {page: "ready", collection: {containerFound: true, musicItems: 2, itemsWithTitleElement: 2}};
 const event = {at: "2026-11-13T18:00:00.000Z", operation: "update-item", code: "request-failed", extensionVersion: "0.2.3", httpStatus: 403, responseFormat: "html"};
@@ -87,21 +87,21 @@ test("releitura sanitiza eventos antigos e descarta entradas inválidas", () => 
 });
 
 test("resumo distingue ausência de dados, estrutura reconhecida e alteração provável", async () => {
-  const {libibDiagnosticSummary} = await import("../dist/libib-diagnostic-ui.js");
-  const state = {latest: {extensionVersion: "0.2.5", checks: assessLibibCompatibility(ready)}};
+  const {libibDiagnosticSummary} = await import("../src/libib/libib-diagnostic-ui.ts");
+  const state = {report: {events: []}, latest: {extensionVersion: "0.2.5", checks: assessLibibCompatibility(ready)}};
   assert.equal(libibDiagnosticSummary(undefined, "0.2.5").tone, "neutral");
   assert.match(libibDiagnosticSummary(state, "0.2.5").message, /áreas verificadas/);
-  const changed = {latest: {...state.latest, checks: assessLibibCompatibility({...ready, collection: {...ready.collection, itemsWithTitleElement: 0}})}};
+  const changed = {...state, latest: {...state.latest, checks: assessLibibCompatibility({...ready, collection: {...ready.collection, itemsWithTitleElement: 0}})}};
   assert.equal(libibDiagnosticSummary(changed, "0.2.5").tone, "warning");
   assert.match(libibDiagnosticSummary(changed, "0.2.5").message, /Possível mudança/);
 });
 
 test("informação insuficiente e diagnóstico de outra versão não confirmam incompatibilidade", async () => {
-  const {libibDiagnosticSummary} = await import("../dist/libib-diagnostic-ui.js");
-  const empty = {latest: {extensionVersion: "0.2.5", checks: assessLibibCompatibility({page: "ready"})}};
+  const {libibDiagnosticSummary} = await import("../src/libib/libib-diagnostic-ui.ts");
+  const empty = {report: {events: []}, latest: {extensionVersion: "0.2.5", checks: assessLibibCompatibility({page: "ready"})}};
   assert.equal(libibDiagnosticSummary(empty, "0.2.5").tone, "neutral");
   assert.match(libibDiagnosticSummary(empty, "0.2.5").message, /informação suficiente/);
-  const old = {latest: {extensionVersion: "0.2.4", checks: [{state: "changed"}]}};
+  const old = {report: {events: []}, latest: {extensionVersion: "0.2.4", checks: [{state: "changed"}]}};
   assert.equal(libibDiagnosticSummary(old, "0.2.5").tone, "neutral");
   assert.match(libibDiagnosticSummary(old, "0.2.5").message, /outra versão/);
 });

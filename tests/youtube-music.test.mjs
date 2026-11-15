@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {YouTubeMusicClient, parseYouTubeAlbums, isYouTubeAlbumUrl, isYouTubeArtwork} from "../dist/youtube-music.js";
-import {searchAlbums} from "../dist/resolution.js";
-import {albumSearchTitle} from "../dist/album-search-title.js";
+import {YouTubeMusicClient, parseYouTubeAlbums, isYouTubeAlbumUrl, isYouTubeArtwork} from "../src/streamings/youtube-music.ts";
+import {searchAlbums} from "../src/albums/resolution.ts";
+import {albumSearchTitle} from "../src/albums/album-search-title.ts";
 
 const fixture = JSON.parse(await readFile(new URL("./fixtures/youtube-music-search.json", import.meta.url), "utf8"));
 const query = {title: "Discovery", artist: "Daft Punk", source: {catalogId: "libib", itemUrl: "https://www.libib.com/library"}};
@@ -44,6 +44,7 @@ test("amostra pública retorna álbuns com artista, capa, ano e link direto", ()
   assert.equal(albums[0].service, "youtube-music");
   assert.equal(isYouTubeAlbumUrl(albums[0].url, albums[0].id), true);
   assert.equal(isYouTubeArtwork(albums[0].artworkUrl), true);
+  assert.deepEqual(albums[0].artworkVariants.map(image => image.width), [60, 120, 226, 544]);
   assert.equal(albums[0].upc, undefined);
 });
 test("não classifica playlist, vídeo ou resultado sem artista identificável como álbum", () => {

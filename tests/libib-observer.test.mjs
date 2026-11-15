@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {LibibDiagnosticsStore} from "../dist/libib-diagnostic-store.js";
-import {createLibibObservationPublisher} from "../dist/libib-observer.js";
+import {LibibDiagnosticsStore} from "../src/libib/libib-diagnostic-store.ts";
+import {createLibibObservationPublisher} from "../src/libib/libib-observer.ts";
 
 const healthy = {page: "ready", collection: {containerFound: true, musicItems: 2, itemsWithTitleElement: 2}};
 const changed = {...healthy, collection: {...healthy.collection, itemsWithTitleElement: 1}};

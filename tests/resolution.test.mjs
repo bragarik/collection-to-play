@@ -7,8 +7,8 @@ import {
   resolveCandidates,
   searchAlbums,
   StreamingError,
-} from "../dist/resolution.js";
-import { normalizeProductCode, productCodesMatch } from "../dist/identifiers.js";
+} from "../src/albums/resolution.ts";
+import { normalizeProductCode, productCodesMatch } from "../src/albums/identifiers.ts";
 
 const query = {
   title: "Discovery",

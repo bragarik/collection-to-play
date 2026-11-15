@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LibraryPreferences } from "../dist/preferences.js";
-import { searchAlbums } from "../dist/resolution.js";
+import { LibraryPreferences } from "../src/shared/preferences.ts";
+import { searchAlbums } from "../src/albums/resolution.ts";
 const query = {title: "Reason", artist: "Shaaman", source: {catalogId: "libib", itemUrl: "https://www.libib.com/library"}};
 const album = {service: "spotify", id: "A".repeat(22), title: "Reason", artists: [{id: "artist", name: "Shaman"}], url: `https://open.spotify.com/album/${"A".repeat(22)}`};
 function setup() {

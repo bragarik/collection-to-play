@@ -56,7 +56,7 @@ button:disabled { cursor: wait; opacity: .6; }
 .spotify-icon { width: 24px; height: 24px; flex-shrink: 0; object-fit: contain; }
 
 .metadata-editor {
-  width: min(480px, calc(100vw - 32px));
+  width: min(1040px, calc(100vw - 32px));
   height: min(720px, calc(100dvh - 32px));
   max-width: none;
   max-height: none;

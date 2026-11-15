@@ -13,6 +13,9 @@ const opened = [];
 let apiCalls = 0;
 let youtubeCalls = 0;
 let youtubeStatus = 200;
+let youtubePaging = false;
+let imageCalls = 0;
+const artworkPng = Uint8Array.from([137,80,78,71,13,10,26,10,1]);
 let youtubeRule;
 const youtubeFixture = JSON.parse(await readFile(new URL("./fixtures/youtube-music-search.json", import.meta.url), "utf8"));
 let mode = "exact";
@@ -38,27 +41,39 @@ globalThis.chrome = {
   tabs: { create: async options => { opened.push(options.url); return {id: opened.length}; } },
 };
 globalThis.fetch = async (url, init) => {
+  if (new URL(url).origin === "https://i.scdn.co") {
+    imageCalls++;
+    assert.equal(init.credentials, "omit"); assert.equal(init.redirect, "error"); assert.equal(init.method, "GET");
+    return new Response(artworkPng);
+  }
+  if (new URL(url).origin === "https://accounts.spotify.com") return Response.json({error: "invalid_grant"}, {status: 400});
   if (new URL(url).origin === "https://music.youtube.com") {
     assert.ok(youtubeRule, "preparar regra antes de consultar YouTube Music");
     youtubeCalls++;
     if (youtubeStatus !== 200) return Response.json({error: {code: youtubeStatus, status: "INVALID_ARGUMENT", message: "Invalid client context"}}, {status: youtubeStatus});
     const value = structuredClone(youtubeFixture);
+    if (youtubePaging && !new URL(url).searchParams.has("continuation")) value.contents.sectionListRenderer.contents[0].musicShelfRenderer.continuations = [{nextContinuationData: {continuation: "youtube-next"}}];
     if (JSON.parse(init.body).query === "Discovery Daft Punk") value.contents.sectionListRenderer.contents[0].musicShelfRenderer.contents.splice(1);
     return Response.json(value);
   }
   apiCalls++;
   assert.equal(new URL(url).origin, "https://api.spotify.com");
   if (mode === "forbidden") return new Response(null, {status: 403});
+  if (mode === "unauthorized") return new Response(null, {status: 401});
   if (new URL(url).pathname.startsWith("/v1/albums/")) {
     const data = album(new URL(url).pathname.split("/").at(-1));
     if (mode === "no-external-ids") delete data.external_ids;
     return Response.json(data);
   }
   if (mode === "many-diagnostic") return Response.json({albums: {items: Array.from({length: 25}, (_, index) => album(String(index).padStart(22, "0"))), next: null}});
+  if (mode === "metadata-paging") {
+    const offset = Number(new URL(url).searchParams.get("offset"));
+    return Response.json({albums: {items: [album(String(offset).padStart(22, "0"))], next: offset < 50 ? "more" : null}});
+  }
   const items = mode === "ambiguous" ? [album(), album("C".repeat(22), "Discovery Deluxe")] : [album()];
   return Response.json({ albums: { items, next: mode === "partial" ? "more" : null } });
 };
-await import("../dist/background.js");
+await import("../src/entrypoints/background.ts");
 const content = {id: extensionId, url: libraryUrl, tab: {id: 1}, frameId: 0};
 const extension = {id: extensionId, url: `chrome-extension://${extensionId}/setup.html`};
 const request = (changes = {}) => ({ type: "spotify:open", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl, target: "web", ...changes });
@@ -75,6 +90,25 @@ test("botão da biblioteca abre o álbum único direto no Web Player", async () 
   assert.deepEqual(reply, {ok: true, data: {opened: true}});
   assert.equal(opened.length, before + 1);
   assert.equal(opened.at(-1), `https://open.spotify.com/album/${albumId}`);
+});
+
+test("resultados de edição aceitam somente conteúdo Libib principal e exportam dados filtrados", async () => {
+  const message = {type: "library:edit-diagnostic", sourceUrl: libraryUrl,
+    event: {editor: "quick", stage: "title", code: "save-unconfirmed", errorCode: "http", httpStatus: 500, title: "private-title"}};
+  for (const sender of [extension, {...content, id: "other"}, {...content, frameId: 1}, {...content, tab: undefined},
+    {...content, url: "https://evil.example/library"}, {...content, url: "https://www.libib.com/login"}])
+    assert.equal(await send(message, sender), undefined);
+  assert.equal(await send({...message, sourceUrl: libraryUrl + "/other"}), undefined);
+  const before = apiCalls;
+  assert.deepEqual(await send(message), {ok: true, data: {recorded: true}});
+  assert.equal(await send({type: "libib:diagnostics"}), undefined);
+  const report = (await send({type: "libib:diagnostics"}, extension)).data;
+  assert.equal(report.report.events.at(-1).code, "save-unconfirmed");
+  assert.equal(report.report.events.at(-1).httpStatus, 500);
+  assert.equal(JSON.stringify(report).includes("private-title"), false);
+  assert.equal(apiCalls, before);
+  assert.equal((await send({...message, event: {...message.event, stage: "fill", code: "save-confirmed"}})).ok, false);
+  stored.delete("libib.diagnostics");
 });
 
 test("opção de aplicativo abre a URI do álbum identificado por UPC", async () => {
@@ -475,4 +509,120 @@ test("finalidade de metadados exige busca da extensão com origem Libib válida"
   for (const changes of [{sourceUrl: undefined}, {sourceUrl: "https://evil.example"}, {purpose: "unknown"}, {type: "spotify:open", target: "web"}]) {
     assert.equal((await send({...message, ...changes}, extension)).error.code, "invalid-query");
   }
+});
+
+test("busca explícita de metadados usa cada serviço sem mudar preferência, escolhas ou abrir player", async () => {
+  const preference = structuredClone(stored.get("library.preferences"));
+  const before = opened.length;
+  try {
+    stored.delete("library.preferences"); mode = "exact";
+    for (const service of ["spotify", "youtube-music"]) {
+      const reply = await send({type: "metadata:search", service, title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl}, extension);
+      assert.equal(reply.ok, true); assert.equal(reply.data.service, service);
+      assert.equal(reply.data.resolution.status, "resolved");
+      assert.equal(reply.data.resolution.album.service, service);
+      assert.equal(reply.data.selectionId, undefined); assert.equal(reply.data.autoOpen, undefined);
+      assert.equal(reply.data.connectionRequired, false);
+      assert.equal(reply.data.configurationUrl, `chrome-extension://${extensionId}/setup.html`);
+      assert.equal(stored.has("library.preferences"), false);
+    }
+    assert.equal(opened.length, before);
+    stored.set("library.preferences", {...preference, service: "spotify"});
+    await send({type: "metadata:search", service: "youtube-music", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl}, extension);
+    assert.equal(stored.get("library.preferences").service, "spotify");
+    assert.deepEqual(stored.get("library.preferences").choices, preference.choices);
+  } finally {stored.set("library.preferences", preference);}
+});
+
+test("busca de metadados e estado de conexão rejeitam conteúdo, serviços e origens inválidos", async () => {
+  const message = {type: "metadata:search", service: "spotify", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl};
+  const before = apiCalls + youtubeCalls;
+  assert.equal(await send(message), undefined);
+  assert.equal(await send({type: "metadata:services"}), undefined);
+  for (const change of [{service: "deezer"}, {service: "apple-music"}, {service: "amazon-music"}, {service: undefined}, {service: "https://evil.example"},
+    {sourceUrl: undefined}, {sourceUrl: "https://evil.example/library"}, {lookupTitle: "another"}, {purpose: "metadata"}]) {
+    assert.equal((await send({...message, ...change}, extension)).ok, false);
+  }
+  assert.equal(apiCalls + youtubeCalls, before);
+});
+
+test("estado por serviço informa conexão e link sem expor sessão ou exigir preferência global", async () => {
+  const session = stored.get("spotify.session");
+  try {
+    stored.delete("spotify.session");
+    const reply = (await send({type: "metadata:services"}, extension)).data;
+    assert.deepEqual(reply.services, [
+      {id: "spotify", name: "Spotify", requiresAuthentication: true, connected: false},
+      {id: "youtube-music", name: "YouTube Music", requiresAuthentication: false, connected: true},
+    ]);
+    const query = {type: "metadata:search", service: "spotify", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl};
+    const offline = (await send(query, extension)).data;
+    assert.equal(offline.connectionRequired, true); assert.equal(offline.resolution.code, "authentication-required");
+    assert.equal((await send({...query, service: "youtube-music"}, extension)).data.resolution.status, "resolved");
+    assert.doesNotMatch(JSON.stringify(reply), /controlled-access|controlled-refresh|accessToken|refreshToken/);
+    stored.set("spotify.session", session);
+    assert.equal((await send({type: "metadata:services"}, extension)).data.services[0].connected, true);
+    assert.equal((await send(query, extension)).data.connectionRequired, false);
+  } finally {stored.set("spotify.session", session);}
+});
+
+test("sessão revogada retorna caminho de conexão e atualiza o estado após falha real de autenticação", async () => {
+  const session = stored.get("spotify.session"); mode = "unauthorized";
+  try {
+    const reply = (await send({type: "metadata:search", service: "spotify", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl}, extension)).data;
+    assert.equal(reply.connectionRequired, true); assert.equal(reply.resolution.code, "authentication-required");
+    assert.equal((await send({type: "metadata:services"}, extension)).data.services[0].connected, false);
+  } finally {mode = "exact"; stored.set("spotify.session", session);}
+});
+
+test("paginação de metadados é vinculada a serviço, consulta, identificadores e origem", async () => {
+  const query = {type: "metadata:search", service: "spotify", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl};
+  mode = "metadata-paging";
+  try {
+    const first = (await send(query, extension)).data;
+    assert.ok(first.resolution.nextPage);
+    const before = apiCalls + youtubeCalls;
+    for (const change of [{service: "youtube-music"}, {title: "Other"}, {artist: "Other"}, {upc: "036000291452"}, {sourceUrl: libraryUrl + "/other"}])
+      assert.equal((await send({...query, ...change, nextPage: first.resolution.nextPage}, extension)).error.code, "invalid-query");
+    assert.equal(apiCalls + youtubeCalls, before);
+    const next = (await send({...query, nextPage: first.resolution.nextPage}, extension)).data;
+    assert.equal(next.service, "spotify"); assert.equal(next.resolution.status, "choose");
+    assert.equal(next.resolution.candidates[0].id, String(50).padStart(22, "0"));
+    assert.equal(next.resolution.nextPage, undefined);
+  } finally {mode = "exact";}
+});
+
+test("YouTube Music pagina com token vinculado e continua após mudança da preferência global", async () => {
+  const preference = structuredClone(stored.get("library.preferences"));
+  const query = {type: "metadata:search", service: "youtube-music", title: "Paginated example", artist: "Daft Punk", sourceUrl: libraryUrl};
+  youtubePaging = true;
+  try {
+    const first = (await send(query, extension)).data; assert.ok(first.resolution.nextPage);
+    stored.set("library.preferences", {...preference, service: "spotify"});
+    const next = (await send({...query, nextPage: first.resolution.nextPage}, extension)).data;
+    assert.equal(next.service, "youtube-music"); assert.equal(next.resolution.nextPage, undefined);
+    assert.equal(stored.get("library.preferences").service, "spotify");
+    assert.deepEqual(stored.get("library.preferences").choices, preference.choices);
+  } finally {youtubePaging = false; stored.set("library.preferences", preference);}
+});
+
+test("obtenção de capa exige página da extensão e origem Libib sem permitir proxy para outros hosts", async () => {
+  const message = {type: "metadata:artwork", album: {...album(), service: "spotify", artworkUrl: "https://i.scdn.co/image/controlled"}, sourceUrl: libraryUrl};
+  const before = imageCalls, apiBefore = apiCalls, youtubeBefore = youtubeCalls, openedBefore = opened.length;
+  const preference = structuredClone(stored.get("library.preferences"));
+  assert.equal(await send(message), undefined);
+  assert.equal((await send({...message, sourceUrl: "https://evil.test/library"}, extension)).ok, false);
+  assert.equal((await send({...message, album: {...message.album, artworkUrl: "https://evil.test/cover"}}, extension)).error.code, "unavailable");
+  assert.equal(imageCalls, before);
+  const original = globalThis.createImageBitmap;
+  globalThis.createImageBitmap = async blob => {assert.equal(blob.type, "image/png");return {width: 640,height: 640,close() {}};};
+  try {
+    const result = await send(message, extension);
+    assert.equal(result.ok, true); assert.equal(result.data.width, 640); assert.equal(result.data.byteLength, artworkPng.length);
+    assert.equal(result.data.albumId, albumId); assert.equal(result.data.service, "spotify");
+    assert.equal(imageCalls, before+1); assert.equal(apiCalls, apiBefore); assert.equal(youtubeCalls, youtubeBefore);
+    assert.equal(opened.length, openedBefore); assert.deepEqual(stored.get("library.preferences"), preference);
+    assert.equal(stored.has("artwork"), false);
+    assert.doesNotMatch(JSON.stringify(result), /controlled-access|controlled-refresh|Bearer/);
+  } finally {if (original === undefined) delete globalThis.createImageBitmap; else globalThis.createImageBitmap = original;}
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {LibibEditClient, LibibEditError} from "../dist/libib-edit.js";
+import {LibibEditClient, LibibEditError} from "../src/libib/libib-edit.ts";
 
 const target = {joinId: "101", libraryId: "202"};
 const libraryUrl = "https://www.libib.com/library";
