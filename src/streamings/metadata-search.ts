@@ -1,8 +1,12 @@
-import type {AlbumCandidate, MetadataSearchInput, MetadataSearchReply, MetadataServiceId, MetadataServicesReply} from "../shared/contracts.js";
+import {METADATA_SERVICE_IDS, type AlbumCandidate, type MetadataSearchInput, type MetadataSearchReply, type MetadataServiceId, type MetadataServicesReply} from "../shared/contracts.js";
 import {isValidCandidate, StreamingError} from "../albums/resolution.js";
 
 export function isMetadataService(value: unknown): value is MetadataServiceId {
-  return value === "spotify" || value === "youtube-music";
+  return METADATA_SERVICE_IDS.some(service => service === value);
+}
+export function isMetadataAlbumId(service: MetadataServiceId, value: unknown): value is string {
+  return typeof value === "string" && (service === "spotify" ? /^[a-zA-Z0-9]{22}$/ :
+    service === "apple-music" || service === "deezer" ? /^[1-9]\d{0,15}$/ : /^MPRE[a-zA-Z0-9_-]{4,200}$/).test(value);
 }
 export function metadataQueryKey(query: MetadataSearchInput): string {
   return JSON.stringify([query.title.trim(), query.artist.trim(), query.sourceUrl, query.upc ?? "", query.ean ?? ""]);

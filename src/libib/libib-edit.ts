@@ -1,3 +1,4 @@
+import {descriptionLimit} from "../albums/album-description.js";
 import {isSupportedCatalogUrl} from "../shared/contracts.js";
 
 export interface LibibEditTarget {
@@ -10,9 +11,11 @@ export interface LibibEditSnapshot {
   readonly title: string;
   readonly titleOverride: string;
   readonly creators: readonly string[];
+  readonly description?: string;
+  readonly descriptionMaxLength?: number;
 }
 
-export type LibibEditOperation = "load" | "title" | "creators" | "image";
+export type LibibEditOperation = "load" | "title" | "creators" | "image" | "description";
 export type LibibEditErrorCode =
   | "invalid-input" | "invalid-context" | "cancelled" | "timeout"
   | "network" | "http" | "invalid-response" | "rejected";
@@ -44,7 +47,7 @@ export class LibibEditError extends Error {
 export function isLibibEditError(value: unknown): value is LibibEditError {
   return value instanceof Error && value.name === "LibibEditError" &&
     "code" in value && typeof value.code === "string" && Object.hasOwn(messages, value.code) &&
-    "operation" in value && ["load", "title", "creators", "image"].includes(String(value.operation)) &&
+    "operation" in value && ["load", "title", "creators", "image", "description"].includes(String(value.operation)) &&
     "writeMayHaveOccurred" in value && typeof value.writeMayHaveOccurred === "boolean";
 }
 
@@ -104,7 +107,12 @@ export class LibibEditClient {
       throw new LibibEditError("invalid-response", "load");
     }
     // Keep only the values needed for editing; never execute returned HTML.
-    return {target: current, title: item.title, titleOverride: item.title_override, creators: [...creators]};
+    const description = typeof fields.description === "string" && /<(?:input|textarea)\b[^>]*\bname\s*=\s*["']description["']/i.test(fields.description) &&
+      (typeof item.description === "string" || item.description === null) ? item.description ?? "" : undefined;
+    const control = typeof fields.description === "string" ? fields.description.match(/<(?:input|textarea)\b[^>]*\bname\s*=\s*["']description["'][^>]*>/i)?.[0] : undefined;
+    const maximum = control?.match(/\smaxlength\s*=\s*(?:["'](\d+)["']|(\d+)(?=\s|\/?[>]))/i);
+    const descriptionMaxLength = descriptionLimit(maximum ? Number(maximum[1] ?? maximum[2]) : undefined);
+    return {...(description !== undefined ? {description, descriptionMaxLength} : {}), target: current, title: item.title, titleOverride: item.title_override, creators: [...creators]};
   }
 
   async saveTitle(target: LibibEditTarget, title: string, signal?: AbortSignal): Promise<LibibFieldConfirmation> {

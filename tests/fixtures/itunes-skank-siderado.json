@@ -1,0 +1,8 @@
+
+
+
+{
+ "resultCount":1,
+ "results": [
+{"wrapperType":"collection", "collectionType":"Album", "artistId":157890919, "collectionId":401652079, "amgArtistId":206589, "artistName":"Skank", "collectionName":"Siderado", "collectionCensoredName":"Siderado", "artistViewUrl":"https://music.apple.com/br/artist/skank/157890919?uo=4", "collectionViewUrl":"https://music.apple.com/br/album/siderado/401652079?uo=4", "artworkUrl60":"https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/3a/26/25/3a2625f8-35a9-7158-9d1e-41337d803f47/mzi.vtzmhpky.jpg/60x60bb.jpg", "artworkUrl100":"https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/3a/26/25/3a2625f8-35a9-7158-9d1e-41337d803f47/mzi.vtzmhpky.jpg/100x100bb.jpg", "collectionPrice":17.90, "collectionExplicitness":"notExplicit", "trackCount":11, "copyright":"℗ 1998 Sony Music Entertainment (Brasil) Industria e Com. Ltda.", "country":"BRA", "currency":"BRL", "releaseDate":"1998-06-22T07:00:00Z", "primaryGenreName":"Brasileira"}]
+}

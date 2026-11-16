@@ -5,12 +5,12 @@ import {isLibibApplyResult,describeLibibApplyResult} from '../src/libib/libib-me
 
 const request={joinId:'101',libraryId:'202',field:'title',value:'Novo título',titleOverride:'Ordenação'};
 const classes=()=>{const values=new Set();return {add:x=>values.add(x),remove:x=>values.delete(x),contains:x=>values.has(x)};};
-function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHandler=false}={}){
- const handlers=new Map(),bodies=[];let selected,inputs=[],privateSaved;const privateItem={title:'Anterior',creators:['Anterior'],title_override:'Ordenação'};
+function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHandler=false,description,descriptionMaxLength=5000}={}){
+ const handlers=new Map(),bodies=[];let selected,inputs=[],privateSaved;const privateItem={title:'Anterior',creators:['Anterior'],title_override:'Ordenação',...(description!==undefined?{description}:{})};
  const imageField={kind:'field',field:'image'},titleField={kind:'field',field:'title'},creatorField={kind:'field',field:'creators'},save={kind:'save',disabled:false,classList:classes()},close={classList:classes()};
  const form={querySelector:s=>inputs.find(input=>s.includes('"'+input.name+'"')),querySelectorAll:s=>s.includes('button')?[...inputs,save]:s.includes('input[name=')?inputs.filter(input=>s.includes('"'+input.name+'"')):inputs};
  const root={isConnected:true,dataset:{joinId:'101',libraryId:'202',itemType:'music'},getClientRects:()=>[1],
-  querySelector:s=>s==='#quick-edit-form'?form:s==='#jump-cover-save'?save:s.includes('data-key="title"')?titleField:s.includes('data-key="creators"')?creatorField:s.includes('data-key="image"')?imageField:undefined,
+  querySelector:s=>s==='#quick-edit-form'?form:s==='#jump-cover-save'?save:s.includes('data-key="title"')?titleField:s.includes('data-key="creators"')?creatorField:s.includes('data-key="image"')?imageField:s.includes('data-key="description"')&&description!==undefined?{kind:'field',field:'description'}:undefined,
   querySelectorAll:()=>close.classList.contains('disabled')?[close]:[]};
  const roots=[root],listeners=new Map(),replies=[];
  const document={querySelectorAll:()=>roots,defaultView:{getComputedStyle:()=>({visibility:'visible'}),DataTransfer:class {items={add:file=>this.files.push(file)};files=[];}}};
@@ -22,7 +22,7 @@ function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHa
   on:(event,fn)=>{handlers.set(event,fn);},off:namespace=>{for(const event of handlers.keys())if(event.endsWith(namespace))handlers.delete(event);},
   trigger:()=>{
    if(target.kind==='field'){
-    selected=target.field;inputs=[{name:selected,value:String(privateItem[selected]),disabled:false}];
+    selected=target.field;inputs=[{name:selected,value:String(privateItem[selected]),disabled:false,...(selected==='description'?{tagName:'TEXTAREA',type:'textarea',readOnly:false,maxLength:descriptionMaxLength}:{})}];
     if(selected==='image')inputs=[{name:'image',type:'file',disabled:false,isConnected:true,form,classList:classes(),files:[]}];
     if(selected==='title')inputs.push({name:'title_override',value:privateItem.title_override,disabled:false});return;
    }
@@ -144,4 +144,28 @@ test('capa não escreve se o handler abrir controle inválido ou campos adiciona
    const result=await saveLibibNativeField(value.page,value.jquery,imageRequest(),signal());assert.equal(result.writeMayHaveOccurred,false);assert.equal(value.bodies.length,0);
   }
  } finally {globalThis.createImageBitmap=previous;}
+});
+
+
+test('descrição usa o handler nativo e confirma atualização do estado privado sem outros campos',async()=>{
+ const value=setup({description:'Original'});
+ const request={joinId:'101',libraryId:'202',field:'description',value:'Nova descrição',expectedDescription:'Original',descriptionConfirmed:true};
+ const result=await saveLibibNativeField(value.page,value.jquery,request,signal());
+ assert.equal(result.confirmed,true);assert.deepEqual(value.bodies,[{join_id:'101',library_id:'202',item_type:'music',description:'Nova descrição'}]);
+ assert.equal(value.snapshot().item.description,'Nova descrição');assert.equal(value.snapshot().item.title,'Anterior');assert.equal(value.snapshot().saved,true);
+});
+test('descrição sem confirmação ou divergente do texto original não envia nenhuma gravação',async()=>{
+ const base={joinId:'101',libraryId:'202',field:'description',value:'Nova',expectedDescription:'Original',descriptionConfirmed:true};
+ for(const patch of [{descriptionConfirmed:false},{descriptionConfirmed:undefined},{expectedDescription:'Desatualizada'},{value:''}]){
+  const value=setup({description:'Original'});const result=await saveLibibNativeField(value.page,value.jquery,{...base,...patch},signal());
+  assert.equal(result.confirmed,false);assert.equal(result.writeMayHaveOccurred,false);assert.equal(value.bodies.length,0);assert.equal(value.snapshot().item.description,'Original');
+ }
+});
+
+test('não envia descrição acima do limite comum, menor ou zero do campo nativo',async()=>{
+ for(const [limit,text] of [[20000,'a'.repeat(5001)],[4,'abcde'],[0,'a']]){
+  const value=setup({description:'Original',descriptionMaxLength:limit});
+  const result=await saveLibibNativeField(value.page,value.jquery,{joinId:'101',libraryId:'202',field:'description',value:text,expectedDescription:'Original',descriptionConfirmed:true},signal());
+  assert.equal(result.confirmed,false);assert.equal(value.bodies.length,0);assert.equal(value.snapshot().item.description,'Original');
+ }
 });

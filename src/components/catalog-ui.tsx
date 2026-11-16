@@ -1,12 +1,12 @@
 import {createRef, render} from "preact";
 import {useEffect, useRef, useState} from "preact/hooks";
-import type {AlbumOpenTarget, AlbumQuery} from "../shared/contracts.js";
+import {streamingName, type AlbumOpenTarget, type AlbumQuery} from "../shared/contracts.js";
 import {StreamingIcon} from "./ui-components.js";
 
 function AlbumAction({host, service, getQuery, onOpen}: {host: HTMLElement; service: string; getQuery(): AlbumQuery | undefined; onOpen(query: AlbumQuery, target: AlbumOpenTarget): void | Promise<void>}) {
   const [expanded, setExpanded] = useState(false), [busy, setBusy] = useState(false);
   const button = useRef<HTMLButtonElement>(null), active = useRef(false), alive = useRef(true);
-  const name = service === "youtube-music" ? "YouTube Music" : "Spotify";
+  const name = streamingName(service);
   async function open(event: MouseEvent, target: AlbumOpenTarget): Promise<void> {
     event.preventDefault(); event.stopPropagation();
     const query = getQuery(); if (!query || active.current) return;
@@ -16,7 +16,7 @@ function AlbumAction({host, service, getQuery, onOpen}: {host: HTMLElement; serv
   useEffect(() => () => {alive.current = false;}, []);
   return <div data-theme="light" onKeyDown={event => {if (event.key === "Escape") {setExpanded(false); button.current?.focus();}}} onFocusOut={() => queueMicrotask(() => {if (alive.current && !host.matches(":focus-within")) setExpanded(false);})}>
     <link rel="stylesheet" href={chrome.runtime.getURL("ui.css")}/><link rel="stylesheet" href={chrome.runtime.getURL("library.css")}/>
-    <button class="btn btn-primary btn-sm" ref={button} type="button" disabled={busy} aria-label={`Ouvir ${getQuery()?.title ?? "álbum"} no ${name}`} aria-expanded={expanded} aria-busy={busy || undefined} onClick={event => {event.preventDefault(); event.stopPropagation(); if (service === "youtube-music") void open(event, "web"); else setExpanded(value => !value);}}><StreamingIcon service={service}/><span>{busy ? "Buscando…" : `Ouvir no ${name}`}</span></button>
+    <button class="btn btn-primary btn-sm" ref={button} type="button" disabled={busy} aria-label={`Ouvir ${getQuery()?.title ?? "álbum"} no ${name}`} aria-expanded={expanded} aria-busy={busy || undefined} onClick={event => {event.preventDefault(); event.stopPropagation(); if (service !== "spotify") void open(event, "web"); else setExpanded(value => !value);}}><StreamingIcon service={service}/><span>{busy ? "Buscando…" : `Ouvir no ${name}`}</span></button>
     <div class="album-options" role="group" aria-label="Onde abrir o álbum" hidden={!expanded}><button class="btn btn-soft btn-sm" type="button" disabled={busy} onClick={event => void open(event, "web")}>Web Player</button><button class="btn btn-soft btn-sm" type="button" disabled={busy} onClick={event => void open(event, "app")}>Aplicativo Spotify</button></div>
   </div>;
 }

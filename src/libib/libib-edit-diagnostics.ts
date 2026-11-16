@@ -23,7 +23,7 @@ export function createLibibEditDiagnostics(editor: LibibEditDiagnostic["editor"]
       try {const result = await action(); publish({editor, stage: "load", code: "read-confirmed"}); return result;}
       catch (error) {failure("load", error); throw error;}
     },
-    native(stage: "title" | "creators" | "image", outcome: NativeSaveOutcome): void {
+    native(stage: "title" | "creators" | "image" | "description", outcome: NativeSaveOutcome): void {
       if (outcome.confirmed) publish({editor, stage, code: "save-confirmed", ...(outcome.httpStatus ? {httpStatus: outcome.httpStatus} : {})});
       else {
         const code = outcome.writeMayHaveOccurred ? "save-unconfirmed" : "edit-blocked";

@@ -1,3 +1,4 @@
+import {descriptionText} from "../albums/album-description.js";
 import {ARTWORK_BYTE_LIMIT, imageFormat} from "../albums/album-artwork.js";
 import type {NativeSaveOutcome} from "./libib-native.js";
 import {isLibibEditError, type LibibEditClient, type LibibEditTarget} from "./libib-edit.js";
@@ -72,7 +73,7 @@ export async function applyLibibMetadata(
   return {title, creators};
 }
 
-export type SelectiveField = "title" | "creators" | "image";
+export type SelectiveField = "title" | "creators" | "image" | "description";
 export interface LibibPatchResult {
   readonly fields: Partial<Record<SelectiveField, FieldSaveState>>;
   readonly nativeUpdated: boolean;
@@ -92,7 +93,7 @@ export async function validateArtworkFile(value: unknown): Promise<File> {
 export async function applyLibibPatch(value: unknown, save: (field: SelectiveField, value: string | File) => Promise<NativeSaveOutcome>): Promise<LibibPatchResult> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Escolha os campos que deseja aplicar.");
   const patch = value as Record<string, unknown>, keys = Object.keys(patch);
-  if (!keys.length || keys.some(key => !["title", "artists", "artwork"].includes(key) || patch[key] === undefined)) throw new Error("Escolha somente título, artistas ou capa.");
+  if (!keys.length || keys.some(key => !["title", "artists", "artwork", "description"].includes(key) || patch[key] === undefined)) throw new Error("Escolha somente título, artistas, capa ou descrição.");
   const values: Partial<Record<SelectiveField, string | File>> = {};
   if (keys.includes("title")) {
     const title = patch["title"];
@@ -100,6 +101,7 @@ export async function applyLibibPatch(value: unknown, save: (field: SelectiveFie
     values.title = title.trim();
   }
   if (keys.includes("artists")) values.creators = prepareAlbumMetadata({title: "Dados do álbum", artists: patch["artists"]}).creatorsText;
+  if (keys.includes("description")) values.description = descriptionText(patch["description"]);
   if (keys.includes("artwork")) values.image = await validateArtworkFile(patch["artwork"]);
   const fields: Partial<Record<SelectiveField, FieldSaveState>> = {};
   const entries = Object.entries(values) as [SelectiveField, string | File][];
@@ -121,10 +123,10 @@ export function isLibibPatchResult(value: unknown): value is LibibPatchResult {
   if (!value || typeof value !== "object") return false;
   const result = value as Record<string, unknown>, fields = result["fields"];
   return typeof result["nativeUpdated"] === "boolean" && !!fields && typeof fields === "object" && !Array.isArray(fields) &&
-    Object.keys(fields).length > 0 && Object.entries(fields).every(([key, state]) => ["title", "creators", "image"].includes(key) && typeof state === "string" && ["saved", "not-saved", "unconfirmed"].includes(state));
+    Object.keys(fields).length > 0 && Object.entries(fields).every(([key, state]) => ["title", "creators", "image", "description"].includes(key) && typeof state === "string" && ["saved", "not-saved", "unconfirmed"].includes(state));
 }
 export function describeLibibPatchResult(result: LibibPatchResult): string {
-  const labels = {title: "Título", creators: "Artistas", image: "Capa"};
+  const labels = {title: "Título", creators: "Artistas", image: "Capa", description: "Descrição"};
   const states = {saved: "salvo", "not-saved": "não enviado ou não salvo", unconfirmed: "gravação sem confirmação"};
   const summary = Object.entries(result.fields).map(([field, state]) => `${labels[field as SelectiveField]}: ${states[state]}`).join(". ") + ".";
   return summary + (Object.values(result.fields).every(state => state === "saved")

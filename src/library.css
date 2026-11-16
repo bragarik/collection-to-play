@@ -43,8 +43,11 @@ iframe { display: block; flex: 1; min-height: 0; width: 100%; border: 0; backgro
   margin: 6px 0;
   text-align: center;
   z-index: auto;
+  min-width: 0;
+  max-width: 100%;
 }
-:host([data-kind="card"]) button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 9px; font-size: 12px; box-shadow: none; }
+:host([data-kind="card"]) button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 9px; font-size: 12px; box-shadow: none; box-sizing: border-box; max-width: 100%; height: auto; min-height: var(--size, 32px); white-space: normal; line-height: 1.4; }
+:host([data-kind="card"]) button > span { min-width: 0; overflow-wrap: anywhere; }
 
 button:disabled { cursor: wait; opacity: .6; }
 
@@ -56,8 +59,8 @@ button:disabled { cursor: wait; opacity: .6; }
 .spotify-icon { width: 24px; height: 24px; flex-shrink: 0; object-fit: contain; }
 
 .metadata-editor {
-  width: min(1040px, calc(100vw - 32px));
-  height: min(720px, calc(100dvh - 32px));
+  width: min(1144px, calc(100vw - 32px));
+  height: min(870px, calc(100dvh - 32px));
   max-width: none;
   max-height: none;
   padding: 0;

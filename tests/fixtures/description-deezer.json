@@ -1,0 +1,81 @@
+{
+  "id": 1215478,
+  "type": "album",
+  "title": "Siderado",
+  "artist": {
+    "id": 13545,
+    "name": "Skank"
+  },
+  "release_date": "1998-06-22",
+  "label": "Columbia",
+  "genres": {
+    "data": [
+      {
+        "name": "Pop"
+      }
+    ]
+  },
+  "nb_tracks": 11,
+  "tracks": {
+    "data": [
+      {
+        "id": 13263708,
+        "title": "Marginal Tieté",
+        "duration": 313
+      },
+      {
+        "id": 13263709,
+        "title": "Do Ben",
+        "duration": 239
+      },
+      {
+        "id": 13263710,
+        "title": "Resposta",
+        "duration": 245
+      },
+      {
+        "id": 15102416,
+        "title": "Siderado",
+        "duration": 243
+      },
+      {
+        "id": 13263711,
+        "title": "Mandrake e os Cubanos",
+        "duration": 243
+      },
+      {
+        "id": 13263712,
+        "title": "Os Homens Das Cavernas",
+        "duration": 263
+      },
+      {
+        "id": 13263713,
+        "title": "Romance Noir",
+        "duration": 243
+      },
+      {
+        "id": 15144060,
+        "title": "Don Blás (feat. Daúde)",
+        "duration": 266
+      },
+      {
+        "id": 13263714,
+        "title": "Calipsoê",
+        "duration": 267
+      },
+      {
+        "id": 14912577,
+        "title": "No Meio do Mar (feat. UAKTI)",
+        "duration": 265
+      },
+      {
+        "id": 13263715,
+        "title": "Saideira",
+        "duration": 227
+      }
+    ]
+  },
+  "record_type": "album",
+  "duration": 2814,
+  "upc": "5099749207127"
+}

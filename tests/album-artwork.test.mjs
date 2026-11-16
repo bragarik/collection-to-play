@@ -154,3 +154,68 @@ test("resposta para outro álbum, bytes divergentes ou dimensões inválidas nã
     await assert.rejects(loadAlbumArtworkResource(album(), async () => ({...data,...change}), {urls: {createObjectURL() {created++; return "blob:unused";}, revokeObjectURL() {}}}));
   assert.equal(created, 0);
 });
+
+test("iTunes usa somente capas retornadas e mede dimensões sem fabricar resolução maior", async () => {
+  const urls = ["https://is1-ssl.mzstatic.com/image/thumb/cover/60x60bb.jpg", "https://is1-ssl.mzstatic.com/image/thumb/cover/100x100bb.jpg"], calls = [];
+  const source = album({service: "apple-music", id: "401652079", artworkUrl: urls[1], artworkVariants: urls.map((url, index) => ({url, width: index ? 100 : 60, height: index ? 100 : 60}))});
+  const result = await fetchAlbumArtwork(source, {fetch: async (url, init) => {calls.push(url);assert.equal(init.credentials, "omit");return new Response(Uint8Array.from([...png, url === urls[1] ? 100 : 60]));},
+    decode: async blob => {const size = new Uint8Array(await blob.arrayBuffer()).at(-1);return image(size, size);}});
+  assert.deepEqual(calls, urls); assert.equal(result.service, "apple-music"); assert.equal(result.albumId, "401652079");
+  assert.equal(result.width, 100); assert.equal(result.height, 100); assert.equal(result.sourceUrl, urls[1]);
+  assert.deepEqual(result.warnings, ["low-resolution"]);
+  const resource = await loadAlbumArtworkResource(source, async () => result, {urls: {createObjectURL: () => "blob:itunes", revokeObjectURL() {}}});
+  assert.equal(resource.file.name, "apple-music-401652079.png");resource.release();
+});
+
+test("iTunes recusa ID e CDN inválidos e não consulta rede quando não há capa", async () => {
+  for (const artworkUrl of [undefined, "https://mzstatic.com.evil.example/image/cover", "http://is1-ssl.mzstatic.com/image/cover", "https://user:pass@is1-ssl.mzstatic.com/image/cover", "https://is1-ssl.mzstatic.com/image/cover#part"]) {
+    await assert.rejects(fetchAlbumArtwork(album({service: "apple-music", id: "401652079", artworkUrl}), {fetch: async () => assert.fail("não deve consultar")}), {code: "unavailable"});
+  }
+  await assert.rejects(fetchAlbumArtwork(album({service: "apple-music", id: "../401652079"})), {code: "invalid-input"});
+});
+
+test("capas iTunes preservam limite de peso, formato e cancelamento", async () => {
+  const source = album({service: "apple-music", id: "401652079", artworkUrl: "https://is1-ssl.mzstatic.com/image/thumb/cover/100x100bb.jpg"});
+  await assert.rejects(fetchAlbumArtwork(source, {fetch: async () => new Response("", {headers: {"Content-Length": String(ARTWORK_BYTE_LIMIT + 1)}})}), {code: "too-large"});
+  await assert.rejects(fetchAlbumArtwork(source, {fetch: async () => new Response("<html>not-image</html>")}), {code: "unsupported-format"});
+  const controller = new AbortController();controller.abort();
+  await assert.rejects(fetchAlbumArtwork(source, {signal: controller.signal, fetch: async () => assert.fail("não deve consultar")}), {code: "cancelled"});
+});
+
+test("diagnóstico de capa distingue timeout por serviço sem expor consulta ou erro arbitrário", async t => {
+  const timer = new AbortController();t.mock.method(AbortSignal, "timeout", () => timer.signal);
+  const events = [];
+  const source = album({service: "apple-music", id: "401652079", artworkUrl: "https://is1-ssl.mzstatic.com/image/thumb/cover/100x100bb.jpg?token=private-query"});
+  await assert.rejects(fetchAlbumArtwork(source, {onDiagnostic: event => events.push(event), fetch: async () => {timer.abort();throw new DOMException("private-error", "AbortError");}}), {code: "timeout"});
+  const failure = events.find(event => event.kind === "failure");
+  assert.equal(failure.phase, "request");assert.equal(failure.code, "timeout");assert.equal(failure.timeoutMs, 20000);
+  assert.equal(failure.hasHttpResponse, false);assert.equal(failure.aborted, true);assert.equal(failure.callerAborted, false);
+  assert.ok(failure.durationMs >= 0);assert.ok(Number.isFinite(Date.parse(failure.at)));
+  assert.doesNotMatch(JSON.stringify(events), /private-query|private-error/);
+});
+
+test("diagnóstico da capa preserva HTTP e etapa da falha sem armazenar pixels", async () => {
+  for (const [service,id,url] of [["spotify","A".repeat(22),"https://i.scdn.co/image/cover"],["youtube-music","MPREcontrolled","https://i.ytimg.com/vi/controlled/cover.jpg"],["apple-music","401652079","https://is1-ssl.mzstatic.com/image/thumb/cover/100x100bb.jpg"]]) {
+    const events = [];
+    await assert.rejects(fetchAlbumArtwork(album({service,id,artworkUrl:url}), {onDiagnostic: event => events.push(event), fetch: async () => new Response("private-body", {status: 503})}), {code: "network"});
+    const failure = events.find(event => event.kind === "failure");
+    assert.equal(failure.status, 503);assert.equal(failure.hasHttpResponse, true);assert.equal(failure.phase, "request");
+    assert.doesNotMatch(JSON.stringify(events), /private-body|dataBase64|Authorization/);
+  }
+});
+
+test("log registra variante falha, imagem decodificada e seleção correta", async () => {
+  const events = [];
+  const source = album({artworkVariants:[{url:"https://i.scdn.co/image/first"}],artworkUrl:"https://i.scdn.co/image/second"});
+  await fetchAlbumArtwork(source,{onDiagnostic:event=>events.push(event),fetch:async url=>url.endsWith("first")?new Response("private-body",{status:404}):new Response(png),decode:async()=>image(100,100)});
+  assert.deepEqual(events.map(event=>event.kind),["request","response","failure","request","response","decoded","selected"]);
+  assert.equal(events.at(-1).attempt,2);assert.equal(events.at(-1).width,100);assert.equal(events.at(-1).byteLength,png.length);
+  assert.doesNotMatch(JSON.stringify(events),/private-body|dataBase64/);
+});
+
+test("Deezer obtém variantes retornadas sem cookies e seleciona a maior capa medida", async () => {
+  const urls=[56,250,500,1000].map(size=>`https://cdn-images.dzcdn.net/images/cover/controlled/${size}x${size}.png`),calls=[];
+  const source=album({service:"deezer",id:"1215478",artworkUrl:urls[1],artworkVariants:urls.map(url=>({url}))});
+  const result=await fetchAlbumArtwork(source,{fetch:async(url,init)=>{calls.push(url);assert.equal(init.credentials,"omit");assert.equal(init.redirect,"error");return new Response(new Uint8Array([...png,...new TextEncoder().encode(url.split('/').at(-1))]));},decode:async blob=>{const size=Number(new TextDecoder().decode(new Uint8Array(await blob.arrayBuffer()).slice(png.length)).split('x')[0]);return image(size,size);}});
+  assert.deepEqual(calls,urls);assert.equal(result.service,"deezer");assert.equal(result.width,1000);assert.equal(result.sourceUrl,urls[3]);assert.deepEqual(result.warnings,[]);
+});

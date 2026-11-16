@@ -30,6 +30,7 @@
       .section-badge { max-width: 46%; padding: 3px 8px; background: #efefef; border-radius: 5px; font-size: 11px; font-weight: 500; color: #666; }
       .section-badge[data-tone="warning"] { background: #0096b5; color: white; }
       #open-choices { margin: 0 0 4px; }
+      #save-streaming { display: flex; width: fit-content; max-width: 100%; margin: 12px 0 0 auto; }
       #feedback:empty, #preference-feedback:empty, #libib-health-feedback:empty { display: none; }
       #results { padding-left: 20px; }
       #results li { margin-bottom: 12px; overflow-wrap: anywhere; }
@@ -42,7 +43,8 @@
       .remembered-choice button:hover:not(:disabled) { background: #dedede; }
       #preference-feedback, #choices-feedback { font-size: 13px; min-height: 1.5em; }
       #spotify-heading { display: flex; align-items: center; gap: 8px; }
-      #youtube-connection { display: flex; align-items: center; gap: 8px; }
+      .streaming-info { display: flex; align-items: flex-start; gap: 12px; margin: 16px 0 0; line-height: 1.6; }
+      .streaming-info > span { flex: 1; min-width: 0; }
       .spotify-icon { width: 24px; height: 24px; flex-shrink: 0; object-fit: contain; }
       #choices-dialog { width: min(540px, calc(100vw - 24px)); max-height: 85vh; padding: 0; border: 1px solid #dedede; border-radius: 12px; color: inherit; background: white; box-shadow: 0 12px 40px #03151e33; }
       #choices-dialog::backdrop { background: #03151e66; }
@@ -68,4 +70,16 @@
 .feedback { font-size: 13px; overflow-wrap: anywhere; }
 .settings-section { display: block; }
 .settings-section > summary { color: inherit; }
+.support-trigger { display: flex; margin-bottom: 12px; }
+#support-dialog { width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; border: 1px solid #dedede; border-radius: 12px; color: inherit; background: white; box-shadow: 0 12px 40px #03151e33; }
+#support-dialog::backdrop { background: #03151e66; }
+#support-dialog .dialog-content { padding-top: 8px; }
+.support-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.support-methods .btn { min-width: 0; }
+.support-receiving { margin-top: 20px; }
+.support-receiving h3 { font-size: 16px; margin: 0; }
+.support-qr { display: block; width: 256px; max-width: 100%; height: auto; margin: 12px auto; background: white; }
+.support-receiving textarea { font: 12px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
+.support-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.support-actions a.btn { display: inline-flex; margin-bottom: 0; color: var(--color-primary-content); text-decoration: none; }
 :root { --color-primary: #007b92; }

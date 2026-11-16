@@ -10,11 +10,15 @@ export type StreamingId =
 
 export const STREAMINGS: readonly {readonly id: StreamingId; readonly name: string; readonly available: boolean}[] = [
   {id: "spotify", name: "Spotify", available: true},
-  {id: "deezer", name: "Deezer", available: false},
-  {id: "apple-music", name: "Apple Music", available: false},
+  {id: "deezer", name: "Deezer", available: true},
+  {id: "apple-music", name: "iTunes", available: true},
   {id: "youtube-music", name: "YouTube Music", available: true},
   {id: "amazon-music", name: "Amazon Music", available: false},
 ];
+
+export function streamingName(service: string): string {
+  return STREAMINGS.find(item => item.id === service)?.name ?? service;
+}
 
 export interface AlbumQuery {
   readonly title: string;
@@ -62,6 +66,7 @@ export interface CatalogAdapter {
 }
 
 export interface AlbumSearchPage {
+  readonly notice?: string;
   readonly candidates: readonly AlbumCandidate[];
   readonly complete: false;
   readonly nextPage?: string;
@@ -73,7 +78,6 @@ export interface StreamingAdapter {
 }
 
 export const SPOTIFY = Object.freeze({
-  clientId: "SEU_CLIENT_ID_SPOTIFY",
   redirectPath: "spotify",
 });
 
@@ -97,7 +101,8 @@ export function isSupportedCatalogUrl(value: string): boolean {
 
 export const SETUP_REQUEST = "setup:get";
 
-export type MetadataServiceId = "spotify" | "youtube-music";
+export const METADATA_SERVICE_IDS = ["spotify", "youtube-music", "apple-music", "deezer"] as const;
+export type MetadataServiceId = typeof METADATA_SERVICE_IDS[number];
 export interface MetadataSearchInput {
   readonly title: string;
   readonly artist: string;
@@ -118,6 +123,7 @@ export interface MetadataSearchReply extends AlbumSearchReply {
 export type AppRequest =
   | { readonly type: typeof SETUP_REQUEST }
   | { readonly type: "metadata:services" }
+  | { readonly type: "metadata:description"; readonly album: AlbumCandidate; readonly sourceUrl: string }
   | { readonly type: "metadata:artwork"; readonly album: AlbumCandidate; readonly sourceUrl: string }
   | ({ readonly type: "metadata:search"; readonly service: MetadataServiceId; readonly nextPage?: string } & MetadataSearchInput)
   | { readonly type: "library:get-service"; readonly sourceUrl: string }
@@ -127,6 +133,7 @@ export type AppRequest =
   | { readonly type: "preferences:get" }
   | { readonly type: "preferences:set-service"; readonly service: StreamingId }
   | { readonly type: "preferences:delete"; readonly key: string }
+  | { readonly type: "spotify:configure"; readonly clientId: string }
   | { readonly type: "spotify:connect" }
   | { readonly type: "spotify:disconnect" }
   | { readonly type: "spotify:diagnostics" }

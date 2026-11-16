@@ -1,14 +1,16 @@
+import {createRequestDiagnostics, type RequestFailure} from "./request-diagnostics.js";
 import type { AlbumCandidate, AlbumQuery, AlbumSearchPage, StreamingAdapter } from "../shared/contracts.js";
 import { StreamingError } from "../albums/resolution.js";
 import { albumSearchTitle } from "../albums/album-search-title.js";
 import { normalizeProductCode, productCodesMatch, productCodeVariants } from "../albums/identifiers.js";
 import {albumArtworkVariants} from "../albums/album-artwork.js";
 
-export interface SpotifySearchEvent {
+export interface SpotifySearchEvent extends Partial<Omit<RequestFailure, "kind">> {
   readonly at: string;
-  readonly kind: "request" | "response" | "page" | "album-details" | "identifier-check";
+  readonly kind: "request" | "response" | "page" | "album-details" | "identifier-check" | "failure";
   readonly endpoint: string;
   readonly status?: number;
+  readonly contentType?: string;
   readonly durationMs?: number;
   readonly strategy?: "identifier" | "filtered" | "free-text";
   readonly expression?: string;
@@ -171,6 +173,7 @@ export class SpotifyClient implements StreamingAdapter {
   }
 
   private async authorize(revision: number): Promise<void> {
+    if (!this.environment.clientId.trim()) throw new StreamingError("authentication-required", "Salve o Client ID do seu aplicativo Spotify nas configurações antes de conectar.");
     const { verifier, challenge, state } = await createPkce();
     const url = new URL("https://accounts.spotify.com/authorize");
     url.search = new URLSearchParams({
@@ -198,19 +201,15 @@ export class SpotifyClient implements StreamingAdapter {
     await this.save(session, revision);
   }
 
-  private async request(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  private async request(url: string, init: RequestInit, signal?: AbortSignal, diagnostics?: ReturnType<typeof createRequestDiagnostics>): Promise<Response> {
     const remaining = Math.ceil((this.retryAt - this.now()) / 1000);
     if (remaining > 0) throw new StreamingError("rate-limited", `Aguarde ${remaining} segundos antes de tentar novamente.`, remaining);
+    const trace = diagnostics ?? createRequestDiagnostics("Spotify", signal);
     try {
-      return await this.fetcher(url, {
-        ...init,
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000),
-        redirect: "error",
-      });
-    } catch {
-      if (signal?.aborted) throw new StreamingError("cancelled", "Busca cancelada.");
-      throw new StreamingError("network", "Não foi possível consultar o Spotify. Confira sua conexão e tente novamente.");
-    }
+      trace.signal.throwIfAborted();
+      const response = await this.fetcher(url, {...init, signal: trace.signal, redirect: "error"});
+      return response;
+    } catch (error) { throw trace.failure(error, "request"); }
   }
 
   private async verifyResponse(response: Response): Promise<void> {
@@ -289,21 +288,37 @@ export class SpotifyClient implements StreamingAdapter {
     const checkCancelled = (): void => {
       if (revision !== this.revision || signal?.aborted) throw new StreamingError("cancelled", "Busca cancelada.");
     };
+    checkCancelled();
+    let trace = createRequestDiagnostics("Spotify", signal, event => diagnostic?.({...event, endpoint: url}));
+    const fetchData = async (): Promise<Response> => {
+      diagnostic?.({...trace.requestInfo, kind: "request", endpoint: url});
+      const response = await this.request(url, {headers: {Authorization: `Bearer ${session.accessToken}`}}, signal, trace);
+      diagnostic?.({...trace.timing(), kind: "response", endpoint: url, status: response.status,
+        contentType: (response.headers.get("content-type") ?? "").split(";")[0]!.slice(0, 100)});
+      return response;
+    };
+    let response = await fetchData();
+    if (response.status === 401) {
+      try {session = await this.refresh(session.accessToken);}
+      catch (error) {throw trace.failure(error, "authentication");}
+      trace = createRequestDiagnostics("Spotify", signal, event => diagnostic?.({...event, endpoint: url}));
+      response = await fetchData();
+    }
+    if (response.status === 401) await this.disconnect();
+    try {await this.verifyResponse(response);}
+    catch (error) {throw trace.failure(error, "http", response);}
+    let data: unknown;
+    try {
+      data = await response.json();
+      trace.signal.throwIfAborted();
       checkCancelled();
-      const fetchData = async (): Promise<Response> => {
-        const started = this.now();
-        diagnostic?.({ at: new Date(this.now()).toISOString(), kind: "request", endpoint: url });
-        const response = await this.request(url, { headers: { Authorization: `Bearer ${session.accessToken}` } }, signal);
-        diagnostic?.({ at: new Date(this.now()).toISOString(), kind: "response", endpoint: url, status: response.status, durationMs: Math.max(0, this.now() - started) });
-        return response;
-      };
-      let response = await fetchData();
-      if (response.status === 401) { session = await this.refresh(session.accessToken); response = await fetchData(); }
-      if (response.status === 401) await this.disconnect();
-      await this.verifyResponse(response);
-      const data = await this.json(response);
-      checkCancelled();
-      return data;
+    } catch (error) {throw trace.failure(error, "response-body", response);}
+    return data;
+  }
+
+  async descriptionDetails(id: string, signal?: AbortSignal, onStatus?: (status: number) => void): Promise<unknown> {
+    if (!/^[a-zA-Z0-9]{22}$/.test(id)) throw new StreamingError("invalid-query", "ID de álbum inválido.");
+    return this.authorizedGet(`https://api.spotify.com/v1/albums/${id}`, signal, event => {if (event.kind === "response" && typeof event.status === "number") onStatus?.(event.status);});
   }
 
   async albumDetails(id: string, signal?: AbortSignal, diagnostic?: (event: SpotifySearchEvent) => void): Promise<{album: AlbumCandidate; externalIds: {upc: string | null; ean: string | null}}> {

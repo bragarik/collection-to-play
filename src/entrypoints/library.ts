@@ -1,5 +1,5 @@
 import {mountPlayerShell} from "../components/catalog-ui.js";
-import { isSupportedCatalogUrl, type AlbumQuery, type AlbumOpenTarget, type AppReply } from "../shared/contracts.js";
+import { isSupportedCatalogUrl, streamingName, type AlbumQuery, type AlbumOpenTarget, type AppReply } from "../shared/contracts.js";
 
 import { libib, setLibibService } from "../libib/libib.js";
 import { collectLibibObservation, createLibibObservationPublisher } from "../libib/libib-observer.js";
@@ -43,7 +43,7 @@ function syncAlbumActions(): void {
     if (mounted.has(album.actionTarget) && !action) mounted.delete(album.actionTarget);
     if (!mounted.has(album.actionTarget)) mounted.set(album.actionTarget, libib.mountAction(album, (query, target) => openAlbum?.(query, target)));
     else {
-      action?.shadowRoot?.querySelector("button")?.setAttribute("aria-label", `Ouvir ${album.query.title} no ${selectedService === "youtube-music" ? "YouTube Music" : "Spotify"}`);
+      action?.shadowRoot?.querySelector("button")?.setAttribute("aria-label", `Ouvir ${album.query.title} no ${streamingName(selectedService)}`);
     }
   }
 }

@@ -1,9 +1,11 @@
+import {descriptionText, assertDescriptionReplacement} from "../albums/album-description.js";
 import {validateArtworkFile} from "./libib-metadata.js";
 import {isSupportedCatalogUrl} from "../shared/contracts.js";
 import type {LibibEditErrorCode} from "./libib-edit.js";
 
 export type NativeSaveRequest = {readonly joinId: string; readonly libraryId: string} & (
   | {readonly field: "title" | "creators"; readonly value: string; readonly titleOverride?: string}
+  | {readonly field: "description"; readonly value: string; readonly expectedDescription: string; readonly descriptionConfirmed: true}
   | {readonly field: "image"; readonly value: File}
 );
 export interface NativeSaveOutcome {
@@ -32,6 +34,11 @@ function record(value: unknown): value is Record<string, unknown> {
 export function parseNativeSaveRequest(value: unknown): NativeSaveRequest | undefined {
   if (!record(value) || ![value["joinId"], value["libraryId"]].every(id => typeof id === "string" && /^[1-9]\d{0,19}$/.test(id))) return undefined;
   const field = value["field"], text = value["value"], override = value["titleOverride"];
+  if (field === "description") {
+    try {return value["descriptionConfirmed"] === true && typeof value["expectedDescription"] === "string" && value["expectedDescription"].length <= 200_000
+      ? {joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: descriptionText(text), expectedDescription: value["expectedDescription"], descriptionConfirmed: true} : undefined;}
+    catch {return undefined;}
+  }
   if (field === "image") return text instanceof File && text.size > 0 && text.size <= 20_000_000
     ? {joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: text} : undefined;
   if ((field !== "title" && field !== "creators") || typeof text !== "string" || !text.trim() || text.length > (field === "title" ? 512 : 52_000)) return undefined;
@@ -77,9 +84,16 @@ export async function saveLibibNativeField(
   if (!field || !save || save.disabled || save.classList.contains("loading")) return fail("invalid-context");
   try {jquery(field).trigger("click");} catch {return fail("invalid-context");}
   const form = root.querySelector<HTMLFormElement>("#quick-edit-form");
-  const input = form?.querySelector<HTMLInputElement>(`input[name="${request.field}"]`);
+  const selector = request.field === "description" ? 'textarea[name="description"],input[name="description"]' : `input[name="${request.field}"]`;
+  const input = form?.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
   const override = form?.querySelector<HTMLInputElement>('input[name="title_override"]');
-  if (!form || !input || input.disabled || form.querySelectorAll(`input[name="${request.field}"]`).length !== 1 || (request.field === "title" && !override)) return fail("invalid-context");
+  if (!form || !input || input.disabled || form.querySelectorAll(selector).length !== 1 || (request.field === "title" && !override)) return fail("invalid-context");
+  if (request.field === "description") {
+    try {
+      if (input.readOnly || input.getClientRects && !input.getClientRects().length || input.tagName !== "TEXTAREA" && !(input.tagName === "INPUT" && input.type === "text") || input.maxLength >= 0 && request.value.length > input.maxLength) return fail("invalid-context");
+      assertDescriptionReplacement(input.value, {confirmed: request.descriptionConfirmed, expected: request.expectedDescription});
+    } catch {return fail("invalid-context");}
+  }
   const allowed = request.field === "title" ? ["title", "title_override"] : [request.field];
   if ([...form.querySelectorAll<HTMLInputElement>("input[name],textarea[name],select[name]")].some(control => !allowed.includes(control.name))) return fail("invalid-context");
   if (currentEditor(page.document, request) !== root || signal.aborted) return fail("invalid-context");
@@ -89,8 +103,8 @@ export async function saveLibibNativeField(
       const Transfer = page.document.defaultView?.DataTransfer;
       if (!Transfer) return fail("invalid-context");
       const transfer = new Transfer(); transfer.items.add(request.value);
-      input.files = transfer.files;
-      if (input.files?.length !== 1 || input.files[0]?.size !== request.value.size) return fail("invalid-context");
+      (input as HTMLInputElement).files = transfer.files;
+      if ((input as HTMLInputElement).files?.length !== 1 || (input as HTMLInputElement).files?.[0]?.size !== request.value.size) return fail("invalid-context");
     } catch {return fail("invalid-context");}
   } else input.value = request.value;
   if (request.field === "title" && override) override.value = request.titleOverride!;

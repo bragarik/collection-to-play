@@ -1,3 +1,4 @@
+import {descriptionLimit, descriptionText, assertDescriptionReplacement, type DescriptionReplacement} from "../albums/album-description.js";
 import {isSupportedCatalogUrl} from "../shared/contracts.js";
 import {prepareAlbumMetadata} from "./libib-metadata.js";
 import {ARTWORK_BYTE_LIMIT, imageFormat} from "../albums/album-artwork.js";
@@ -7,6 +8,15 @@ export interface LibibFullEditor {
   readonly joinId: string;
   readonly title: HTMLInputElement;
   readonly creators: HTMLInputElement;
+  readonly description?: HTMLInputElement | HTMLTextAreaElement;
+}
+
+export function readDescriptionControl(form: HTMLFormElement): HTMLInputElement | HTMLTextAreaElement | undefined {
+  const controls = form.querySelectorAll?.<HTMLInputElement | HTMLTextAreaElement>('input[name="description"],textarea[name="description"]');
+  const control = controls?.[0];
+  if (!control || controls?.length !== 1 || control.disabled || control.readOnly || !control.isConnected || control.form !== form ||
+    control.classList.contains("no-post") || control.getClientRects && !control.getClientRects().length || control.tagName !== "TEXTAREA" && !(control.tagName === "INPUT" && control.type === "text")) return undefined;
+  return control;
 }
 
 export function readLibibFullEditor(form: HTMLFormElement, pageUrl: string): LibibFullEditor | undefined {
@@ -26,7 +36,8 @@ export function readLibibFullEditor(form: HTMLFormElement, pageUrl: string): Lib
   const music = cards.length ? cards.some(card => card.classList.contains("music")) :
     [...form.closest("#item-details-info")?.querySelectorAll(".details-view .media-tag") ?? []]
       .some(tag => /^(music|música|musica)$/i.test(tag.textContent?.trim() ?? ""));
-  return music ? {form, joinId, title, creators} : undefined;
+  const description = readDescriptionControl(form);
+  return music ? {form, joinId, title, creators, ...(description ? {description} : {})} : undefined;
 }
 
 /** Changes only the two text inputs; saving stays under the native form's control. */
@@ -43,12 +54,13 @@ export function fillLibibFullEditor(context: LibibFullEditor, pageUrl: string, v
 /** Validates every chosen value before changing controls; native Save remains the only write action. */
 export async function fillLibibFullEditorPatch(context: LibibFullEditor, pageUrl: string, value: unknown, options: {
   readonly isCurrent?: () => boolean;
+  readonly descriptionReplacement?: DescriptionReplacement;
   readonly signal?: AbortSignal;
   readonly decode?: (file: File) => Promise<{readonly width: number; readonly height: number; close(): void}>;
 } = {}): Promise<void> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Escolha os campos que deseja preencher.");
   const patch = value as Record<string, unknown>, keys = Object.keys(patch);
-  if (!keys.length || keys.some(key => !["title", "artists", "artwork"].includes(key) || patch[key] === undefined)) throw new Error("Escolha somente título, artistas ou capa.");
+  if (!keys.length || keys.some(key => !["title", "artists", "artwork", "description"].includes(key) || patch[key] === undefined)) throw new Error("Escolha somente título, artistas, capa ou descrição.");
   const assertCurrent = (): LibibFullEditor => {
     const current = readLibibFullEditor(context.form, pageUrl);
     if (options.signal?.aborted || options.isCurrent?.() === false || !current || current.joinId !== context.joinId ||
@@ -56,6 +68,13 @@ export async function fillLibibFullEditorPatch(context: LibibFullEditor, pageUrl
     return current;
   };
   assertCurrent();
+  let description: string | undefined;
+  if (keys.includes("description")) {
+    const control = assertCurrent().description;
+    if (!control) throw new Error("O campo de descrição não está disponível neste editor.");
+    assertDescriptionReplacement(control.value, options.descriptionReplacement);
+    description = descriptionText(patch["description"], descriptionLimit(control.maxLength));
+  }
   let title: string | undefined, creators: string | undefined, image: HTMLInputElement | undefined, files: FileList | undefined;
   if (keys.includes("title")) {
     if (typeof patch["title"] !== "string" || !patch["title"].trim() || patch["title"].length > 512) throw new Error("Informe um título válido com até 512 caracteres.");
@@ -89,12 +108,18 @@ export async function fillLibibFullEditorPatch(context: LibibFullEditor, pageUrl
     if (files.length !== 1) throw new Error("Não foi possível preparar o arquivo da capa.");
   }
   const current = assertCurrent();
-  const previous = {title: current.title.value, creators: current.creators.value, files: image?.files};
+  if (description !== undefined) {
+    assertDescriptionReplacement(current.description?.value, options.descriptionReplacement);
+    descriptionText(description, descriptionLimit(current.description?.maxLength));
+  }
+  const previous = {description: current.description?.value, title: current.title.value, creators: current.creators.value, files: image?.files};
   try {
     if (image && files) image.files = files;
+    if (description !== undefined && current.description) current.description.value = description;
     if (title !== undefined) current.title.value = title;
     if (creators !== undefined) current.creators.value = creators;
   } catch {
+    if (description !== undefined && current.description && previous.description !== undefined) current.description.value = previous.description;
     if (title !== undefined) current.title.value = previous.title;
     if (creators !== undefined) current.creators.value = previous.creators;
     if (image && previous.files) {try {image.files = previous.files;} catch { /* Preserve the original failure. */ }}

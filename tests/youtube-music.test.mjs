@@ -132,7 +132,12 @@ test("erro HTML registra HTTP e formato sem exportar o conteúdo da página", as
   const events = [];
   const client = new YouTubeMusicClient(async () => new Response("<html>private-response-body</html>", {status: 503, headers: {"Content-Type": "text/html; charset=utf-8"}}));
   await assert.rejects(client.search(query, undefined, undefined, event => events.push(event)), {code: "unavailable"});
-  assert.deepEqual(events.find(event => event.kind === "response"), {kind: "response", status: 503, contentType: "text/html", bodyFormat: "non-json"});
+  const response = events.find(event => event.kind === "response");
+  assert.equal(response.status, 503);
+  assert.equal(response.contentType, "text/html");
+  assert.equal(response.bodyFormat, "non-json");
+  assert.ok(response.durationMs >= 0);
+  assert.ok(Number.isFinite(Date.parse(response.at)));
   assert.equal(JSON.stringify(events).includes("private-response-body"), false);
 });
 

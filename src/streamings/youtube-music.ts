@@ -1,3 +1,4 @@
+import {createRequestDiagnostics, type RequestFailure, type SearchTiming} from "./request-diagnostics.js";
 import type { AlbumCandidate, AlbumQuery, AlbumSearchPage } from "../shared/contracts.js";
 import { StreamingError } from "../albums/resolution.js";
 import { albumSearchTitle } from "../albums/album-search-title.js";
@@ -6,9 +7,9 @@ import {albumArtworkVariants} from "../albums/album-artwork.js";
 const endpoint = "https://music.youtube.com/youtubei/v1/search";
 const albumFilter = "EgWKAQIYAWoKEAkQBRAKEAMQBA%3D%3D";
 export type YouTubeMusicSearchEvent =
-  | {readonly kind: "request"; readonly method: "POST"; readonly endpoint: string; readonly query: string; readonly clientVersion: string; readonly continued: boolean}
-  | {readonly kind: "response"; readonly status: number; readonly contentType: string; readonly error?: {readonly code?: number; readonly status?: string; readonly message?: string}; readonly bodyFormat?: "json" | "non-json"}
-  | {readonly kind: "failure"; readonly code: "network" | "cancelled" | "invalid-response"; readonly message: string};
+  | {readonly kind: "request"; readonly at: string; readonly timeoutMs: number; readonly method: "POST"; readonly endpoint: string; readonly query: string; readonly clientVersion: string; readonly continued: boolean}
+  | (SearchTiming & {readonly kind: "response"; readonly status: number; readonly contentType: string; readonly error?: {readonly code?: number; readonly status?: string; readonly message?: string}; readonly bodyFormat?: "json" | "non-json"})
+  | RequestFailure;
 
 function diagnosticText(value: string): string {
   return value.replace(/Bearer\s+[^\s"'<>]+/gi, "Bearer [redacted]")
@@ -113,17 +114,19 @@ export class YouTubeMusicClient {
     }
     const title = albumSearchTitle(query);
     const version = `1.${new Date().toISOString().slice(0, 10).replaceAll("-", "")}.01.00`;
-    onDiagnostic?.({kind: "request", method: "POST", endpoint, query: `${title} ${query.artist}`.trim(), clientVersion: version, continued: Boolean(cursor)});
+    const trace = createRequestDiagnostics("YouTube Music", signal, onDiagnostic);
+    const {signal: requestSignal, timing, failure} = trace;
+    onDiagnostic?.({kind: "request", ...trace.requestInfo, method: "POST", endpoint, query: `${title} ${query.artist}`.trim(), clientVersion: version, continued: Boolean(cursor)});
     let response: Response;
     try {
+      requestSignal.throwIfAborted();
       response = await this.fetcher(url.href, {method: "POST", credentials: "omit", redirect: "error",
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000),
+        signal: requestSignal,
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({context: {client: {clientName: "WEB_REMIX", clientVersion: version, hl: "en", gl: "BR"}},
           query: `${title} ${query.artist}`.trim(), params: albumFilter})});
-    } catch {
-      onDiagnostic?.({kind: "failure", code: signal?.aborted ? "cancelled" : "network", message: "Requisição encerrada sem resposta HTTP disponível."});
-      throw new StreamingError(signal?.aborted ? "cancelled" : "network", "Não foi possível consultar o YouTube Music. Tente novamente.");
+    } catch (error) {
+      throw failure(error, "request");
     }
     const contentType = (response.headers.get("content-type") ?? "").split(";")[0]!.slice(0, 100);
     if (!response.ok) {
@@ -138,17 +141,25 @@ export class YouTubeMusicClient {
           ...(typeof details["status"] === "string" ? {status: diagnosticText(details["status"])} : {}),
           ...(typeof details["message"] === "string" ? {message: diagnosticText(details["message"])} : {}),
         };
-      } catch { /* Record HTTP metadata only; never include raw HTML or response headers. */ }
-      onDiagnostic?.({kind: "response", status: response.status, contentType, bodyFormat, ...(error ? {error} : {})});
-      throw new StreamingError(response.status === 429 ? "rate-limited" : "unavailable",
-        response.status === 429 ? "O YouTube Music limitou as consultas. Aguarde antes de tentar novamente." : "YouTube Music indisponível para esta consulta.");
+      } catch (readError) {
+        if (requestSignal.aborted || !(readError instanceof SyntaxError)) {
+          onDiagnostic?.({kind: "response", ...timing(), status: response.status, contentType});
+          throw failure(readError, "response-body", response);
+        }
+        // An HTTP error page may be HTML. Do not export its raw body.
+      }
+      onDiagnostic?.({kind: "response", ...timing(), status: response.status, contentType, bodyFormat, ...(error ? {error} : {})});
+      if (requestSignal.aborted) throw failure(requestSignal.reason, "response-body", response);
+      throw failure(new StreamingError(response.status === 429 ? "rate-limited" : "unavailable",
+        response.status === 429 ? "O YouTube Music limitou as consultas. Aguarde antes de tentar novamente." : "YouTube Music indisponível para esta consulta."), "http", response);
     }
-    onDiagnostic?.({kind: "response", status: response.status, contentType});
-    try { return parseYouTubeAlbums(await response.json()); }
+    onDiagnostic?.({kind: "response", ...timing(), status: response.status, contentType});
+    let data: unknown;
+    try { data = await response.json(); requestSignal.throwIfAborted(); }
     catch (error) {
-      onDiagnostic?.({kind: "failure", code: "invalid-response", message: error instanceof StreamingError ? error.message : "O corpo da resposta não é um JSON válido."});
-      if (error instanceof StreamingError) throw error;
-      throw new StreamingError("invalid-response", "Resposta inválida do YouTube Music.");
+      throw failure(error, "response-body", response);
     }
+    try { return parseYouTubeAlbums(data); }
+    catch (error) { throw failure(error, "parse", response); }
   }
 }

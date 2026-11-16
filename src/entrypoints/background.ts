@@ -1,15 +1,22 @@
+import {loadAlbumDescription, type DescriptionDiagnostic} from "../streamings/album-description.js";
+import {validateDescriptionAlbum} from "../albums/album-description.js";
+import {DeezerClient, isDeezerAlbumUrl, deezerSearchUrl, type DeezerSearchEvent} from "../streamings/deezer.js";
+import {ItunesClient, isItunesAlbumUrl, itunesSearchUrl, type ItunesSearchEvent} from "../streamings/itunes.js";
 import { YouTubeMusicClient, youtubeMusicSearchUrl, isYouTubeAlbumUrl, type YouTubeMusicSearchEvent } from "../streamings/youtube-music.js";
-import { LIBIB, SETUP_REQUEST, SPOTIFY, STREAMINGS, isSupportedCatalogUrl, type AppReply, type SetupInfo } from "../shared/contracts.js";
+import { LIBIB, SETUP_REQUEST, SPOTIFY, STREAMINGS, METADATA_SERVICE_IDS, isSupportedCatalogUrl, type AppReply, type SetupInfo } from "../shared/contracts.js";
 import { searchAlbums, StreamingError, isStreamingError } from "../albums/resolution.js";
-import { SpotifyClient, spotifySearchUrl, type SpotifySearchEvent } from "../streamings/spotify.js";
+import {SpotifyApplication} from "../streamings/spotify-application.js";
+import { spotifySearchUrl, type SpotifySearchEvent } from "../streamings/spotify.js";
 import { LibraryPreferences } from "../shared/preferences.js";
 import type { AlbumQuery, AlbumCandidate, AlbumOpenTarget } from "../shared/contracts.js";
 import { normalizeProductCode, productCodeVariants, productCodesMatch } from "../albums/identifiers.js";
 import { LibibDiagnosticsStore } from "../libib/libib-diagnostic-store.js";
-import {bindMetadataPage, isMetadataService, readMetadataPage} from "../streamings/metadata-search.js";
-import {ArtworkError, fetchAlbumArtwork} from "../albums/album-artwork.js";
+import {bindMetadataPage, isMetadataService, isMetadataAlbumId, readMetadataPage} from "../streamings/metadata-search.js";
+import {ArtworkError, fetchAlbumArtwork, type ArtworkDiagnosticEvent} from "../albums/album-artwork.js";
 
 const youtubeMusic = new YouTubeMusicClient();
+const itunes = new ItunesClient();
+const deezer = new DeezerClient();
 let youtubeRequestRules: Promise<void> | undefined;
 function prepareYouTubeRequests(): Promise<void> {
   if (!youtubeRequestRules) {
@@ -40,8 +47,7 @@ const libibDiagnostics = new LibibDiagnosticsStore({
   async load() {await storageReady; return (await chrome.storage.local.get("libib.diagnostics"))["libib.diagnostics"] as unknown;},
   async save(value) {await storageReady; await chrome.storage.local.set({"libib.diagnostics": value});},
 }, chrome.runtime.getManifest().version);
-const spotify = new SpotifyClient({
-  clientId: SPOTIFY.clientId,
+const spotifyApplication = new SpotifyApplication({
   redirectUrl: chrome.identity.getRedirectURL(SPOTIFY.redirectPath),
   launchAuth: (url) => chrome.identity.launchWebAuthFlow({ url, interactive: true }),
   store: {
@@ -53,14 +59,18 @@ const spotify = new SpotifyClient({
     async save(session) { await storageReady; await chrome.storage.local.set({ [sessionKey]: session }); },
     async clear() { await storageReady; await chrome.storage.local.remove(sessionKey); },
   },
+}, {
+  async load() {await storageReady;return (await chrome.storage.local.get("spotify.clientId"))["spotify.clientId"] as unknown;},
+  async save(clientId) {await storageReady;await chrome.storage.local.set({"spotify.clientId": clientId});},
 });
 
 async function openStreamingAlbum(album: AlbumCandidate, target: AlbumOpenTarget): Promise<void> {
   const service = await requireStreamingPreference();
   if (album.service !== service) throw new StreamingError("invalid-query", "O streaming mudou. Reabra a busca no álbum.");
-  if (album.service === "youtube-music") {
-    if (!isYouTubeAlbumUrl(album.url, album.id)) throw new StreamingError("invalid-response", "Link de álbum inválido.");
-    if (target !== "web") throw new StreamingError("invalid-query", "YouTube Music abre pelo navegador nesta versão.");
+  if (album.service === "deezer" || album.service === "youtube-music" || album.service === "apple-music") {
+    const valid = album.service === "deezer" ? isDeezerAlbumUrl(album.url, album.id) : album.service === "apple-music" ? isItunesAlbumUrl(album.url, album.id) : isYouTubeAlbumUrl(album.url, album.id);
+    if (!valid) throw new StreamingError("invalid-response", "Link de álbum inválido.");
+    if (target !== "web") throw new StreamingError("invalid-query", "Este serviço abre pelo navegador nesta versão.");
     await chrome.tabs.create({url: album.url});
     return;
   }
@@ -72,13 +82,82 @@ async function openStreamingAlbum(album: AlbumCandidate, target: AlbumOpenTarget
   await chrome.tabs.create({ url: target === "app" ? `spotify:album:${album.id}` : album.url });
 }
 
+let artworkWrites: Promise<void> = Promise.resolve();
+async function fetchAndRecordArtwork(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ArtworkError("invalid-input");
+  const input = value as Record<string, unknown>, service = input["service"], albumId = input["id"];
+  if (!isMetadataService(service) || !isMetadataAlbumId(service, albumId)) throw new ArtworkError("invalid-input");
+  const startedAt = new Date().toISOString(), started = performance.now();
+  const events: ArtworkDiagnosticEvent[] = [];
+  let outcome: {status: "ready" | "failed"; code?: string} = {status: "failed", code: "network"};
+  try {
+    const file = await fetchAlbumArtwork(value, {onDiagnostic: event => {if (events.length < 100) events.push(event);}});
+    outcome = {status: "ready"};
+    return file;
+  } catch (error) {
+    outcome = {status: "failed", code: error instanceof ArtworkError ? error.code : "network"};
+    throw error;
+  } finally {
+    const entry = {albumId, startedAt, finishedAt: new Date().toISOString(), durationMs: Math.max(0, Math.round(performance.now() - started)), timeoutMs: 20000, events, outcome};
+    const persist = artworkWrites.then(async () => {
+      await storageReady;
+      const key = `${service}.artworkDiagnostic`;
+      const previous = (await chrome.storage.local.get(key))[key] as {attempts?: unknown[]} | undefined;
+      await chrome.storage.local.set({[key]: {format: "collection-to-play-artwork", schemaVersion: 1, service,
+        extensionVersion: chrome.runtime.getManifest().version, updatedAt: entry.finishedAt,
+        attempts: [...(Array.isArray(previous?.attempts) ? previous.attempts.slice(-4) : []), entry]}});
+    });
+    artworkWrites = persist.catch(() => {});
+    // Diagnostic storage must not turn a usable image into a download failure.
+    await artworkWrites;
+  }
+}
+
+let descriptionWrites: Promise<void> = Promise.resolve();
+async function fetchAndRecordDescription(value: unknown) {
+  const album = validateDescriptionAlbum(value), events: DescriptionDiagnostic[] = [];
+  const startedAt = new Date().toISOString();
+  let outcome: {status: "ready" | "failed"; code?: string} = {status: "failed", code: "unexpected"};
+  try {
+    const result = await loadAlbumDescription(album, {spotifyDetails: async (id, signal, onStatus) => (await spotifyApplication.get()).descriptionDetails(id, signal, onStatus),
+      onDiagnostic: event => {if (events.length < 30) events.push(event);}});
+    outcome = {status: "ready"};return result;
+  } catch (error) {outcome = {status: "failed", code: error instanceof StreamingError ? error.code : "unexpected"};throw error;}
+  finally {
+    const entry = {albumId: album.id, startedAt, finishedAt: new Date().toISOString(), events, outcome};
+    const persist = descriptionWrites.then(async () => {
+      await storageReady;const key = `${album.service}.descriptionDiagnostic`;
+      const previous = (await chrome.storage.local.get(key))[key] as {attempts?: unknown[]} | undefined;
+      await chrome.storage.local.set({[key]: {service: album.service, attempts: [...(Array.isArray(previous?.attempts) ? previous.attempts.slice(-4) : []), entry]}});
+    });
+    descriptionWrites = persist.catch(() => {});await descriptionWrites;
+  }
+}
+
 async function exportSearchDiagnostic(): Promise<unknown> {
   await storageReady;
-  if (await preferences.getService() === "youtube-music") return (await chrome.storage.local.get("youtube-music.searchDiagnostic"))["youtube-music.searchDiagnostic"] ?? null;
+  const service = await preferences.getService();
+  await artworkWrites;await descriptionWrites;
+  const descriptionEntries = await Promise.all(METADATA_SERVICE_IDS.map(async id => [id, (await chrome.storage.local.get(`${id}.descriptionDiagnostic`))[`${id}.descriptionDiagnostic`]] as const));
+  const descriptionByService = Object.fromEntries(descriptionEntries.filter(([, value]) => Boolean(value)));
+  const artworkEntries = await Promise.all(METADATA_SERVICE_IDS.map(async id => {
+    const key = `${id}.artworkDiagnostic`;
+    return [id, (await chrome.storage.local.get(key))[key]] as const;
+  }));
+  const artworkByService = Object.fromEntries(artworkEntries.filter(([, value]) => Boolean(value)));
+  const attachArtwork = (value: unknown): unknown => {
+    if (!Object.keys(artworkByService).length && !Object.keys(descriptionByService).length) return value ?? null;
+    return {...(value && typeof value === "object" ? value : {format: "collection-to-play-search", schemaVersion: 1,
+      extensionVersion: chrome.runtime.getManifest().version, service: service ?? "spotify", batches: []}), ...(Object.keys(artworkByService).length ? {artworkByService} : {}), ...(Object.keys(descriptionByService).length ? {descriptionByService} : {})};
+  };
+  if (service === "deezer" || service === "youtube-music" || service === "apple-music") {
+    const key = `${service}.searchDiagnostic`;
+    return attachArtwork((await chrome.storage.local.get(key))[key]);
+  }
   const stored = (await chrome.storage.local.get("spotify.searchDiagnostic"))["spotify.searchDiagnostic"] as {
     query?: {upc?: string; ean?: string}; batches?: {events?: SpotifySearchEvent[]; outcome?: {albumId?: string}}[];
   } | undefined;
-  if (!stored) return null;
+  if (!stored) return attachArtwork(null);
   const ids = new Set<string>();
   const add = (id: unknown): void => { if (typeof id === "string" && /^[a-zA-Z0-9]{22}$/.test(id)) ids.add(id); };
   for (const batch of [...(stored.batches ?? [])].reverse()) {
@@ -91,7 +170,7 @@ async function exportSearchDiagnostic(): Promise<unknown> {
   const albumDetails: unknown[] = [];
   for (const id of [...ids].slice(0, 20)) {
     try {
-      const {album, externalIds} = await spotify.albumDetails(id);
+      const {album, externalIds} = await (await spotifyApplication.get()).albumDetails(id);
       const returnedCodes = productCodeVariants(externalIds.upc ?? undefined, externalIds.ean ?? undefined);
       const matches = requestedCodes.some(code => returnedCodes.some(returned => productCodesMatch(code, returned)));
       albumDetails.push({id, title: album.title, artists: album.artists, url: album.url,
@@ -105,13 +184,13 @@ async function exportSearchDiagnostic(): Promise<unknown> {
       break;
     }
   }
-  return {...stored, detailsExportedAt: new Date().toISOString(), albumDetails, albumDetailsNotQueried: ids.size - albumDetails.length, albumDetailsLimit: 20};
+  return attachArtwork({...stored, detailsExportedAt: new Date().toISOString(), albumDetails, albumDetailsNotQueried: ids.size - albumDetails.length, albumDetailsLimit: 20});
 }
 
-async function requireStreamingPreference(): Promise<"spotify" | "youtube-music"> {
+async function requireStreamingPreference(): Promise<"spotify" | "youtube-music" | "apple-music" | "deezer"> {
   const service = await preferences.getService();
   if (!service) throw new StreamingError("configuration-required", "Escolha seu streaming pelo ícone da extensão antes de ouvir.");
-  if (service !== spotify.id && service !== youtubeMusic.id) throw new StreamingError("unavailable", "O streaming escolhido ainda não está disponível nesta versão.");
+  if (service !== "spotify" && service !== youtubeMusic.id && service !== itunes.id && service !== deezer.id) throw new StreamingError("unavailable", "O streaming escolhido ainda não está disponível nesta versão.");
   return service;
 }
 
@@ -126,28 +205,34 @@ function sameDiagnosticQuery(value: unknown, query: AlbumQuery): boolean {
 
 async function dispatch(message: Record<string, unknown>): Promise<unknown> {
   switch (message["type"]) {
+    case "metadata:description": {
+      if (typeof message["sourceUrl"] !== "string" || message["sourceUrl"].length > 2048 || !isSupportedCatalogUrl(message["sourceUrl"])) throw new StreamingError("invalid-query", "Origem da biblioteca inválida.");
+      return fetchAndRecordDescription(message["album"]);
+    }
     case "metadata:artwork": {
       if (typeof message["sourceUrl"] !== "string" || message["sourceUrl"].length > 2048 || !isSupportedCatalogUrl(message["sourceUrl"])) {
         throw new ArtworkError("invalid-input");
       }
-      return fetchAlbumArtwork(message["album"]);
+      return fetchAndRecordArtwork(message["album"]);
     }
     case "metadata:services": {
-      const connection = await spotify.status();
+      const connection = await (await spotifyApplication.get()).status();
       return {configurationUrl: chrome.runtime.getURL("setup.html"), services: [
         {id: "spotify", name: "Spotify", requiresAuthentication: true, connected: connection.connected},
         {id: "youtube-music", name: "YouTube Music", requiresAuthentication: false, connected: true},
+        {id: "apple-music", name: "iTunes", requiresAuthentication: false, connected: true},
+        {id: "deezer", name: "Deezer", requiresAuthentication: false, connected: true},
       ]};
     }
     case SETUP_REQUEST: {
-      const connection = await spotify.status();
+      const connection = await (await spotifyApplication.get()).status();
       const preferredService = await preferences.getService();
       const setup: SetupInfo = {
         ...(preferredService ? {preferredService} : {}),
         extensionId: chrome.runtime.id,
         version: chrome.runtime.getManifest().version,
         spotify: {
-          clientId: SPOTIFY.clientId,
+          clientId: await spotifyApplication.configuredClientId(),
           redirectUrl: chrome.identity.getRedirectURL(SPOTIFY.redirectPath),
           connected: connection.connected,
         },
@@ -175,8 +260,9 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       if (typeof message["key"] !== "string") throw new StreamingError("invalid-query", "Registro inválido.");
       await preferences.deleteChoice(message["key"]); return {deleted: true};
     }
-    case "spotify:connect": await spotify.connect(); return { connected: true };
-    case "spotify:disconnect": await spotify.disconnect(); return { connected: false };
+    case "spotify:configure": await spotifyApplication.setClientId(message["clientId"]); return {saved: true};
+    case "spotify:connect": await (await spotifyApplication.get()).connect(); return { connected: true };
+    case "spotify:disconnect": await (await spotifyApplication.get()).disconnect(); return { connected: false };
     case "spotify:diagnostics": return exportSearchDiagnostic();
     case "spotify:open-result": {
       await requireStreamingPreference();
@@ -200,7 +286,7 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       const album = selection.albums.find(item => item.id === message["albumId"]);
       const artist = album?.artists.find(item => item.id === message["artistId"]);
       if (!album || !artist) throw new StreamingError("invalid-query", "Selecione um álbum e artista desta busca.");
-      if (album.service === "youtube-music" && message["target"] !== "web") throw new StreamingError("invalid-query", "YouTube Music abre pelo navegador nesta versão.");
+      if (album.service !== "spotify" && message["target"] !== "web") throw new StreamingError("invalid-query", "Este serviço abre pelo navegador nesta versão.");
       if (album.service !== await requireStreamingPreference()) throw new StreamingError("invalid-query", "O streaming mudou. Busque novamente.");
       await preferences.saveChoice(selection.query, album, artist.id, message["rememberAlbum"]);
       await openStreamingAlbum(album, message["target"]);
@@ -231,8 +317,12 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       if (typeof title !== "string" || typeof artist !== "string" || !title.trim() || title.length > 200 || artist.length > 200) {
         throw new StreamingError("invalid-query", "Informe o álbum; artista é opcional. Use até 200 caracteres por campo.");
       }
+      const service = explicitMetadata && isMetadataService(message["service"]) ? message["service"] : (await preferences.getService() ?? "spotify");
+      if (!["spotify", "youtube-music", "apple-music", "deezer"].includes(service)) throw new StreamingError("unavailable", "O serviço escolhido ainda não está disponível.");
+      if (opening && service !== "spotify" && message["target"] !== "web") throw new StreamingError("invalid-query", "Este serviço abre pelo navegador nesta versão.");
       const identifiers: { upc?: string; ean?: string } = {};
       for (const name of ["upc", "ean"] as const) {
+        if (service === "apple-music" || service === "deezer") continue;
         const raw = message[name];
         if (raw === undefined || raw === "") continue;
         if (typeof raw !== "string" || !normalizeProductCode(raw)) {
@@ -247,6 +337,7 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       if (!opening && sourceUrl && !explicitMetadata) await requireStreamingPreference();
       if (opening && !sourceUrl) throw new StreamingError("invalid-query", "Origem da biblioteca obrigatória.");
       const metadata = explicitMetadata || message["purpose"] === "metadata";
+      if (metadata && !isMetadataService(service)) throw new StreamingError("unavailable", "Selecione um serviço disponível no editor para compor dados.");
       if (explicitMetadata && !sourceUrl) throw new StreamingError("invalid-query", "Origem da biblioteca obrigatória.");
       if (message["purpose"] !== undefined && (opening || !metadata || !sourceUrl)) {
         throw new StreamingError("invalid-query", "Finalidade de busca inválida.");
@@ -262,24 +353,27 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
         }
         lookupQuery = {...query, title: lookupTitle.trim(), artist: lookupArtist.trim()};
       }
-      const service = explicitMetadata && isMetadataService(message["service"]) ? message["service"] :
-        sourceUrl ? await requireStreamingPreference() : (await preferences.getService() ?? "spotify");
       const metadataQuery = {title: query.title, artist: query.artist, sourceUrl: typeof sourceUrl === "string" ? sourceUrl : "", ...identifiers};
       const cursor = explicitMetadata && isMetadataService(service) ? readMetadataPage(service, metadataQuery, message["nextPage"]) : message["nextPage"];
       if (cursor !== undefined && (typeof cursor !== "string" || cursor.length > 8192)) {
         throw new StreamingError("invalid-query", "Continuação inválida. Faça uma nova busca.");
       }
-      const events: (SpotifySearchEvent | YouTubeMusicSearchEvent)[] = [];
+      if (service === "apple-music" && cursor !== undefined) throw new StreamingError("invalid-query", "O iTunes não oferece continuação nesta busca. Refine o título ou artista.");
+      const events: (SpotifySearchEvent | YouTubeMusicSearchEvent | ItunesSearchEvent | DeezerSearchEvent)[] = [];
       let omittedEvents = 0;
-      const collectDiagnostic = (event: SpotifySearchEvent | YouTubeMusicSearchEvent): void => {
+      const collectDiagnostic = (event: SpotifySearchEvent | YouTubeMusicSearchEvent | ItunesSearchEvent | DeezerSearchEvent): void => {
         if (events.length < 200) events.push(event); else omittedEvents++;
       };
-      const adapter = service === "youtube-music"
+      const adapter = service === "deezer"
+        ? {id: deezer.id, search: (_value: typeof query, signal?: AbortSignal) => deezer.search(query, signal, cursor as string | undefined, collectDiagnostic)}
+        : service === "apple-music"
+        ? {id: itunes.id, search: (_value: typeof query, signal?: AbortSignal) => itunes.search(query, signal, collectDiagnostic)}
+        : service === "youtube-music"
         ? {id: youtubeMusic.id, search: async (_value: typeof query, signal?: AbortSignal) => {
           await prepareYouTubeRequests();
           return youtubeMusic.search(query, signal, cursor as string | undefined, collectDiagnostic);
         }}
-        : { id: spotify.id, search: (_value: typeof query, signal?: AbortSignal) => spotify.search(query, signal, cursor as string | undefined, collectDiagnostic) };
+        : { id: "spotify" as const, search: async (_value: typeof query, signal?: AbortSignal) => (await spotifyApplication.get()).search(query, signal, cursor as string | undefined, collectDiagnostic) };
       const remembered = metadata ? undefined : await preferences.getChoice(lookupQuery, adapter.id);
       const resolution = await searchAlbums(adapter, lookupQuery, remembered);
       await storageReady;
@@ -291,7 +385,7 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
         updatedAt: new Date().toISOString(), service: adapter.id, query,
         note: "Até dez lotes da última busca. Não contém tokens, cabeçalhos de autorização, senha ou cookies.",
         batches: [...previous, { continued: Boolean(cursor), events, omittedEvents,
-          ...(adapter.id === "youtube-music" ? {note: "Busca por título/artista; UPC/EAN não fornecidos por este serviço.", candidates: resolution.status === "resolved" ? [resolution.album] : resolution.status === "choose" ? resolution.candidates : []} : {}),
+          ...(adapter.id !== "spotify" ? {note: "Busca por título/artista; UPC/EAN não fornecidos por este serviço.", candidates: resolution.status === "resolved" ? [resolution.album] : resolution.status === "choose" ? resolution.candidates : []} : {}),
           outcome: resolution.status === "failed" ? { status: resolution.status, code: resolution.code, message: resolution.message }
             : { status: resolution.status, count: resolution.status === "resolved" ? 1 : resolution.status === "choose" ? resolution.candidates.length : 0,
               hasNext: resolution.status === "choose" && Boolean(resolution.nextPage),
@@ -309,7 +403,7 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       }
       const data = { resolution: explicitMetadata && resolution.status === "choose" && resolution.nextPage && isMetadataService(service)
           ? {...resolution, nextPage: bindMetadataPage(service, metadataQuery, resolution.nextPage)} : resolution,
-        searchUrl: adapter.id === "youtube-music" ? youtubeMusicSearchUrl(query.title, query.artist) : spotifySearchUrl(query.title, query.artist),
+        searchUrl: adapter.id === "deezer" ? deezerSearchUrl(query.title, query.artist) : adapter.id === "apple-music" ? itunesSearchUrl(query.title, query.artist) : adapter.id === "youtube-music" ? youtubeMusicSearchUrl(query.title, query.artist) : spotifySearchUrl(query.title, query.artist),
         ...(explicitMetadata ? {service, configurationUrl: chrome.runtime.getURL("setup.html"),
           connectionRequired: resolution.status === "failed" && resolution.code === "authentication-required"} : {}),
         ...(selectionId ? {selectionId, autoOpen: Boolean(singleAlbum)} : {}) };

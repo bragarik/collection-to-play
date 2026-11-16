@@ -1,3 +1,4 @@
+import {DESCRIPTION_LIMIT, descriptionLimit, descriptionText, assertDescriptionReplacement, type DescriptionReplacement} from "../albums/album-description.js";
 import {mountEditorAction, mountEditorShell, unmountEditorAction} from "../components/catalog-ui.js";
 import {isSupportedCatalogUrl} from "../shared/contracts.js";
 import {LibibEditClient, LibibEditError} from "./libib-edit.js";
@@ -70,6 +71,8 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
     } else menu.prepend(actionHost);
     let controller: AbortController | undefined;
     let session = "";
+    let descriptionBaseline: string | undefined;
+    let descriptionMaxLength = DESCRIPTION_LIMIT;
     let applying = false;
     const current = (): boolean => identity(root) === key && dialog.open;
     const client = new LibibEditClient({pageUrl: options.pageUrl, isCurrent: current});
@@ -109,7 +112,7 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
     };
     const reset = (): void => {
       controller?.abort(); controller = undefined;
-      session = "";
+      session = "";descriptionBaseline = undefined;descriptionMaxLength = DESCRIPTION_LIMIT;
       ui.update({frameSrc: "about:blank", frameHidden: true});
     };
     const hide = (): void => {if (dialog.open) dialog.close(); reset();};
@@ -127,7 +130,9 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
       try {
         const context = full ? readLibibFullEditor(root as HTMLFormElement, options.pageUrl()) : undefined;
         if (full && !context) throw new Error("A edição mudou. Reabra a busca neste item.");
-        const snapshot = context ? {title: context.title.value, artist: context.creators.value} : await diagnostics.read(() => client.load({joinId: root.dataset["joinId"]!, libraryId: root.dataset["libraryId"]!}, signal)).then(item => ({title: item.title, artist: item.creators.join(", ")}));
+        const snapshot = context ? {title: context.title.value, artist: context.creators.value, description: context.description?.value, maxLength: context.description?.maxLength} : await diagnostics.read(() => client.load({joinId: root.dataset["joinId"]!, libraryId: root.dataset["libraryId"]!}, signal)).then(item => ({title: item.title, artist: item.creators.join(", "), description: item.description, maxLength: item.descriptionMaxLength}));
+        descriptionMaxLength = descriptionLimit(snapshot.maxLength);
+        descriptionBaseline = typeof snapshot.description === "string" && snapshot.description.length <= 200_000 ? snapshot.description : undefined;
         if (signal.aborted || !dialog.open || identity(root) !== key) {hide(); return;}
         const url = new URL(options.resourceUrl("metadata-editor.html"));
         url.searchParams.set("mode", "metadata");
@@ -150,6 +155,10 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
       const data: unknown = event.data;
       if (!data || typeof data !== "object") return;
       const message = data as Record<string, unknown>;
+      if (message["type"] === "collection-to-play:description-context-request" && message["session"] === session && current()) {
+        frame.contentWindow?.postMessage({type: "collection-to-play:description-context", session, available: descriptionBaseline !== undefined,
+          ...(descriptionBaseline !== undefined ? {description: descriptionBaseline, maxLength: descriptionMaxLength} : {})}, `${origin.protocol}//${origin.host}`);return;
+      }
       if (message["type"] !== "collection-to-play:apply-metadata" || message["session"] !== session ||
         typeof message["requestId"] !== "string" || message["requestId"].length > 100) return;
       const reply = (value: object): void => frame.contentWindow?.postMessage({type: "collection-to-play:metadata-applied", session, requestId: message["requestId"], ...value}, `${origin.protocol}//${origin.host}`);
@@ -157,10 +166,22 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
       if (applying) {reply({error: "Aguarde a gravação em andamento."}); return;}
       applying = true; ui.update({closeDisabled: true});
       try {
+        const rawPatch = message["patch"], rawReplacement = message["descriptionReplacement"];
+        const hasDescription = rawPatch && typeof rawPatch === "object" && "description" in rawPatch;
+        let replacement: DescriptionReplacement | undefined;
+        if (hasDescription) {
+          if (!rawReplacement || typeof rawReplacement !== "object" || !("confirmed" in rawReplacement) || !("expected" in rawReplacement) || rawReplacement.confirmed !== true || typeof rawReplacement.expected !== "string") throw new Error("Confirme a substituição da descrição atual.");
+          replacement = {confirmed: true, expected: rawReplacement.expected};
+          assertDescriptionReplacement(descriptionBaseline, replacement);
+          if (!full) {
+            const fresh = await diagnostics.read(() => client.load({joinId: root.dataset["joinId"]!, libraryId: root.dataset["libraryId"]!}, controller?.signal));
+            assertDescriptionReplacement(fresh.description, replacement);
+          }
+        }
         if (full && message["patch"] !== undefined) {
           const context = readLibibFullEditor(root as HTMLFormElement, options.pageUrl());
           if (!context) throw new Error("A edição mudou. Reabra a busca neste item.");
-          await diagnostics.fillAsync(() => fillLibibFullEditorPatch(context, options.pageUrl(), message["patch"], {isCurrent: current,
+          await diagnostics.fillAsync(() => fillLibibFullEditorPatch(context, options.pageUrl(), message["patch"], {isCurrent: current, ...(replacement ? {descriptionReplacement: replacement} : {}),
             ...(controller ? {signal: controller.signal} : {})}));
           if (current() && session === message["session"]) {reply({filled: true}); hide(); action.focus();}
           return;
@@ -172,7 +193,11 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
             if (!current() || session !== message["session"] || signal?.aborted) return {confirmed: false, writeMayHaveOccurred: false, code: "cancelled"};
             let request: NativeSaveRequest;
             if (field === "image" && value instanceof File) request = {...target, field, value};
-            else if (field !== "image" && typeof value === "string") {
+            else if (field === "description" && typeof value === "string" && replacement) {
+              const fresh = await diagnostics.read(() => client.load(target, signal));assertDescriptionReplacement(fresh.description, replacement);
+              request = {...target, field, value: descriptionText(value, fresh.descriptionMaxLength), expectedDescription: replacement.expected, descriptionConfirmed: true};
+            }
+            else if ((field === "title" || field === "creators") && typeof value === "string") {
               const titleOverride = field === "title" ? (await diagnostics.read(() => client.load(target, signal))).titleOverride : undefined;
               request = {...target, field, value, ...(titleOverride !== undefined ? {titleOverride} : {})};
             } else throw new LibibEditError("invalid-input", field);

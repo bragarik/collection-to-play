@@ -1,9 +1,30 @@
+import {isMetadataService, isMetadataAlbumId} from "../streamings/metadata-search.js";
+import {browserErrorDetails, type BrowserErrorDetails} from "../streamings/request-diagnostics.js";
 import type {AlbumArtworkVariant, AlbumCandidate, MetadataServiceId} from "../shared/contracts.js";
 
 export const ARTWORK_BYTE_LIMIT = 20_000_000;
 const mimeTypes = {jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp"} as const;
 type ImageFormat = keyof typeof mimeTypes;
 type ArtworkErrorCode = "invalid-input" | "unavailable" | "too-large" | "unsupported-format" | "invalid-image" | "network" | "cancelled" | "timeout";
+export interface ArtworkDiagnosticEvent {
+  readonly kind: "request" | "response" | "decoded" | "failure" | "selected";
+  readonly at: string;
+  readonly durationMs: number;
+  readonly timeoutMs: number;
+  readonly url: string;
+  readonly attempt: number;
+  readonly phase: "request" | "response-body" | "format" | "decode" | "selection";
+  readonly status?: number;
+  readonly contentType?: string;
+  readonly byteLength?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly code?: ArtworkErrorCode;
+  readonly hasHttpResponse?: boolean;
+  readonly aborted?: boolean;
+  readonly callerAborted?: boolean;
+  readonly browserError?: BrowserErrorDetails;
+}
 const messages: Record<ArtworkErrorCode, string> = {
   "invalid-input": "Selecione um álbum e uma capa válidos.", unavailable: "Nenhuma capa disponível para este álbum.",
   "too-large": "A capa excede o limite de 20 MB.", "unsupported-format": "A capa precisa ser JPEG, PNG, GIF ou WebP.",
@@ -26,6 +47,8 @@ export function isAlbumArtworkUrl(service: unknown, value: unknown): value is st
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash || url.pathname === "/") return false;
     return service === "spotify" ? url.hostname === "i.scdn.co" && /^\/image\/[\w-]+$/.test(url.pathname) :
+      service === "deezer" ? url.hostname === "cdn-images.dzcdn.net" && url.pathname.startsWith("/images/cover/") :
+      service === "apple-music" ? url.hostname.endsWith(".mzstatic.com") && url.pathname.startsWith("/image/") :
       service === "youtube-music" && ["lh3.googleusercontent.com", "yt3.googleusercontent.com", "i.ytimg.com"].includes(url.hostname);
   } catch {return false;}
 }
@@ -98,10 +121,10 @@ export async function fetchAlbumArtwork(value: unknown, environment: {
   readonly fetch?: typeof fetch;
   readonly decode?: (blob: Blob) => Promise<{readonly width: number; readonly height: number; close(): void}>;
   readonly signal?: AbortSignal;
+  readonly onDiagnostic?: (event: ArtworkDiagnosticEvent) => void;
 } = {}): Promise<AlbumArtworkFile> {
   const album = object(value), service = album["service"], id = album["id"];
-  if ((service !== "spotify" && service !== "youtube-music") || typeof id !== "string" ||
-    !(service === "spotify" ? /^[a-zA-Z0-9]{22}$/ : /^MPRE[a-zA-Z0-9_-]{4,200}$/).test(id)) throw new ArtworkError("invalid-input");
+  if (!isMetadataService(service) || !isMetadataAlbumId(service, id)) throw new ArtworkError("invalid-input");
   const variants = albumArtworkVariants(service, album["artworkVariants"]);
   const urls = new Set(variants.map(variant => variant.url));
   if (isAlbumArtworkUrl(service, album["artworkUrl"])) urls.add(album["artworkUrl"]);
@@ -109,23 +132,45 @@ export async function fetchAlbumArtwork(value: unknown, environment: {
   if (!urls.size) throw new ArtworkError("unavailable");
   const timeout = AbortSignal.timeout(20_000);
   const signal = environment.signal ? AbortSignal.any([environment.signal, timeout]) : timeout;
+  const started = performance.now();
+  const emit = (event: Omit<ArtworkDiagnosticEvent, "at" | "durationMs" | "timeoutMs">): void => {
+    // A public image URL may include a signed query; do not persist it.
+    const url = new URL(event.url);
+    environment.onDiagnostic?.({...event, url: url.origin + url.pathname, at: new Date().toISOString(),
+      durationMs: Math.max(0, Math.round(performance.now() - started)), timeoutMs: 20000});
+  };
   const fetcher = environment.fetch ?? fetch;
   const decode = environment.decode ?? (blob => createImageBitmap(blob));
-  let best: {url: string; bytes: Uint8Array; format: ImageFormat; width: number; height: number} | undefined;
+  let best: {url: string; attempt: number; bytes: Uint8Array; format: ImageFormat; width: number; height: number} | undefined;
   let rejected = false, lastError: ArtworkError = new ArtworkError("unavailable");
+  let attempt = 0;
   for (const url of urls) {
     if (signal.aborted) throw new ArtworkError(environment.signal?.aborted ? "cancelled" : "timeout");
+    attempt++;
+    let phase: ArtworkDiagnosticEvent["phase"] = "request";
+    let response: Response | undefined;
+    emit({kind: "request", url, attempt, phase});
     try {
-      const response = await fetcher(url, {method: "GET", credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", signal});
+      response = await fetcher(url, {method: "GET", credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", signal});
+      emit({kind: "response", url, attempt, phase, status: response.status,
+        contentType: (response.headers.get("content-type") ?? "").split(";")[0]!.slice(0, 100)});
       if (!response.ok) {void response.body?.cancel().catch(() => undefined); throw new ArtworkError("network");}
-      const bytes = await limitedBody(response), format = imageFormat(bytes);
+      phase = "response-body";
+      const bytes = await limitedBody(response);
+      phase = "format";
+      const format = imageFormat(bytes);
+      phase = "decode";
       let bitmap;
       try {bitmap = await decode(new Blob([new Uint8Array(bytes)], {type: mimeTypes[format]}));}
       catch {throw new ArtworkError("invalid-image");}
       const {width, height} = bitmap; bitmap.close();
       if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) throw new ArtworkError("invalid-image");
-      if (!best || width * height > best.width * best.height) best = {url, bytes, format, width, height};
+      emit({kind: "decoded", url, attempt, phase, status: response.status, byteLength: bytes.length, width, height});
+      if (!best || width * height > best.width * best.height) best = {url, attempt, bytes, format, width, height};
     } catch (error) {
+      const code = signal.aborted ? environment.signal?.aborted ? "cancelled" : "timeout" : error instanceof ArtworkError ? error.code : "network";
+      emit({kind: "failure", url, attempt, phase, code, hasHttpResponse: Boolean(response),
+        ...(response ? {status: response.status} : {}), aborted: signal.aborted, callerAborted: Boolean(environment.signal?.aborted), browserError: browserErrorDetails(error)});
       if (signal.aborted) throw new ArtworkError(environment.signal?.aborted ? "cancelled" : "timeout");
       rejected = true;
       const failure = error instanceof ArtworkError ? error : new ArtworkError("network");
@@ -134,6 +179,7 @@ export async function fetchAlbumArtwork(value: unknown, environment: {
   }
   if (!best) throw lastError;
   if (signal.aborted) throw new ArtworkError(environment.signal?.aborted ? "cancelled" : "timeout");
+  emit({kind: "selected", url: best.url, attempt: best.attempt, phase: "selection", byteLength: best.bytes.length, width: best.width, height: best.height});
   return {service, albumId: id, sourceUrl: best.url, format: best.format, mimeType: mimeTypes[best.format],
     width: best.width, height: best.height, byteLength: best.bytes.length, dataBase64: base64(best.bytes),
     warnings: [...(best.width < 300 || best.height < 300 ? ["low-resolution" as const] : []), ...(rejected ? ["unavailable-variants" as const] : [])]};

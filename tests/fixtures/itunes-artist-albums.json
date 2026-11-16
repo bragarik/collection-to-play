@@ -1,0 +1,53 @@
+{
+  "initial": {
+    "resultCount": 1,
+    "results": [
+      {
+        "wrapperType": "collection",
+        "collectionType": "Album",
+        "collectionId": 1444039101,
+        "collectionName": "Forever, Michael",
+        "artistId": 32940,
+        "artistName": "Michael Jackson",
+        "collectionViewUrl": "https://music.apple.com/br/album/forever-michael/1444039101?uo=4",
+        "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/ce/48/1a/ce481ab5-54b1-a42e-9a04-9d15fe2b8a08/00602527297538.rgb.jpg/60x60bb.jpg",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/ce/48/1a/ce481ab5-54b1-a42e-9a04-9d15fe2b8a08/00602527297538.rgb.jpg/100x100bb.jpg",
+        "releaseDate": "1975-01-16T00:00:00Z"
+      }
+    ]
+  },
+  "lookup": {
+    "resultCount": 3,
+    "results": [
+      {
+        "wrapperType": "artist",
+        "artistId": 32940,
+        "artistName": "Michael Jackson"
+      },
+      {
+        "wrapperType": "collection",
+        "collectionType": "Album",
+        "collectionId": 1444039101,
+        "collectionName": "Forever, Michael",
+        "artistId": 32940,
+        "artistName": "Michael Jackson",
+        "collectionViewUrl": "https://music.apple.com/br/album/forever-michael/1444039101?uo=4",
+        "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/ce/48/1a/ce481ab5-54b1-a42e-9a04-9d15fe2b8a08/00602527297538.rgb.jpg/60x60bb.jpg",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/ce/48/1a/ce481ab5-54b1-a42e-9a04-9d15fe2b8a08/00602527297538.rgb.jpg/100x100bb.jpg",
+        "releaseDate": "1975-01-16T00:00:00Z"
+      },
+      {
+        "wrapperType": "collection",
+        "collectionType": "Album",
+        "collectionId": 322847038,
+        "collectionName": "Dangerous",
+        "artistId": 32940,
+        "artistName": "Michael Jackson",
+        "collectionViewUrl": "https://music.apple.com/br/album/dangerous/322847038?uo=4",
+        "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/cf/68/f9/cf68f9d4-e395-9ced-3e50-8cf7f1f9d3e0/884977307832.jpg/60x60bb.jpg",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/cf/68/f9/cf68f9d4-e395-9ced-3e50-8cf7f1f9d3e0/884977307832.jpg/100x100bb.jpg",
+        "releaseDate": "1991-11-26T08:00:00Z"
+      }
+    ]
+  }
+}

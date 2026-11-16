@@ -17,10 +17,10 @@ src/
     metadata/           Composição de dados para edição.
   components/           Componentes Preact compartilhados e shells do catálogo.
   libib/                Adaptador, edição nativa, observação e diagnóstico.
-  streamings/           Spotify, YouTube Music e sessão de busca por serviço.
+  streamings/           Spotify, YouTube Music, iTunes, Deezer e sessão de busca por serviço.
   albums/               Resolução, identificadores, capas e composição.
   shared/               Contratos e preferências.
-  assets/               Ícones originais, sem modificação dos arquivos.
+  assets/               Ícone da extensão e símbolos das integrações; autoria em NOTICE.txt.
   *.html                Entradas com endereços estáveis para popup e iframes.
   manifest.json         Definição da extensão com entradas TypeScript.
   ui.css, library.css   Estilos de endereço estável para páginas e Shadow DOM.
@@ -64,20 +64,28 @@ nova versão de armazenamento, trate os dados antigos antes de gravar por cima d
 
 ## Aplicativo Spotify de um fork
 
-A versão principal já usa o Client ID fixo do Collection to Play. As instruções
-abaixo são opcionais para desenvolvedores que desejam usar outro aplicativo em
-um fork; não são etapas de instalação para o usuário final.
+Cada instalação usa um Client ID Spotify configurado pelo usuário, sem ID padrão
+no pacote e sem editar fontes para configurar um fork.
 
-O Client ID é público. Use Authorization Code com PKCE, sem incluir Client Secret,
-senha ou tokens nos fontes. O aplicativo utilizado continua sujeito às regras
-de acesso e quotas do Spotify.
+1. Crie um aplicativo no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard),
+   mantenha Development Mode e confira Premium do proprietário/usuários autorizados.
+2. Compile/carregue a extensão e abra **Aplicativo Spotify** nas configurações.
+3. Cadastre exatamente o Redirect URI exibido em Settings do dashboard.
+4. Cole o Client ID, clique em **Salvar Client ID** e conecte sua conta.
 
-1. Crie um aplicativo no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-2. Substitua `SPOTIFY.clientId` em `src/shared/contracts.ts` pelo Client ID público dele.
-3. Compile com `npm run build` e carregue/recarregue a extensão.
-4. No ícone da extensão, expanda **Dados técnicos do Spotify**.
-5. Cadastre no aplicativo Spotify exatamente o Redirect URI exibido.
-6. Autorize a conta de teste no aplicativo e conecte pela extensão.
+O Client ID é público; não incluir Client Secret, senha ou tokens nos fontes.
+Authorization Code com PKCE continua sem servidor. O campo de retorno é somente
+leitura. O modo de quota é gerenciado no dashboard.
+
+`SpotifyApplication` em `src/streamings/spotify-application.ts` valida o ID público
+(32 caracteres hexadecimais), serializa alterações e separa instâncias por geração.
+`src/entrypoints/background.ts` guarda `spotify.clientId` em armazenamento local
+restrito aos contextos confiáveis. Trocas encerram a sessão anterior e impedem que
+uma autorização/renovação antiga restaure tokens; salvar o mesmo ID não desconecta.
+Uma instalação sem configuração ignora sessões legadas e pede o Client ID antes
+de conectar. Nenhuma migração automática para o antigo cadastro compartilhado.
+Preferências e escolhas da coleção são preservadas. Contrato `spotify:configure`
+é aceito nas páginas da extensão, não por scripts da biblioteca.
 
 A chave pública do manifesto mantém a identidade da instalação local:
 
@@ -206,8 +214,8 @@ falhas parciais e autorização de remetentes.
 
 `metadata:services` e `metadata:search` são canais restritos às páginas da extensão.
 O primeiro retorna os serviços implementados, requisitos/estado de conexão e o
-link local de configuração, sem tokens. O segundo recebe explicitamente Spotify
-ou YouTube Music e exige uma origem Libib válida. Não exige nem altera preferência
+link local de configuração, sem tokens. O segundo recebe explicitamente Spotify,
+YouTube Music, iTunes ou Deezer e exige uma origem Libib válida. Não exige nem altera preferência
 global, não consulta lembranças e não cria seleção para abrir player. A abertura
 para reprodução continua usando os contratos e a preferência existentes.
 
@@ -223,9 +231,16 @@ chamar o adaptador; o token não depende de um mapa em memória e continua utili
 após reinício do worker. É um vínculo de contexto, não um segredo ou autorização.
 Os limites dos adaptadores e a validação da consulta permanecem aplicáveis.
 
-O editor em `src/pages/metadata/metadata-editor.tsx` usa essa sessão, oferece um
-combo de streaming e mantém um card por serviço. Oferece link de configuração e
-atualiza o estado da conexão ao receber foco, mudança de visibilidade, storage
+O editor em `src/pages/metadata/metadata-editor.tsx` usa essa sessão, oferece botões
+de streaming com ícone/nome e mantém um card por serviço, até quatro. Os botões
+usam `aria-pressed` para a seleção exclusiva da busca; a marca “Adicionado” deriva
+dos cards presentes em `AlbumComposition`, independentemente do serviço selecionado.
+Ao remover um card, a marca desaparece e o foco retorna ao botão desse serviço. Os termos de busca
+permanecem ao trocar de serviço; não são rascunhos independentes por streaming.
+Cada botão de restaurar usa o valor original da abertura daquele campo e invalida
+respostas antigas. Resultados em cache só reaparecem quando correspondem à consulta
+atual; a continuação também precisa corresponder aos termos.
+O editor também oferece link de configuração e atualiza o estado da conexão ao receber foco, mudança de visibilidade, storage
 ou pedido de verificação. A conexão não dispara busca automática nem limpa os
 cards ou o formulário composto. A sessão de busca mantém resultados e paginação;
 os cards e campos escolhidos são geridos pelo editor e por `AlbumComposition`.
@@ -233,11 +248,11 @@ os cards e campos escolhidos são geridos pelo editor e por `AlbumComposition`.
 `tests/metadata-search.test.mjs` cobre contexto da paginação, estados por serviço,
 deduplicação, respostas atrasadas e reconexão. `tests/opening.test.mjs` verifica os
 canais reais do worker, autenticação revogada, isolamento de preferência e
-paginação nos dois serviços. Os testes de reprodução existentes permanecem na suíte.
+paginação nos serviços que a oferecem, além da busca iTunes sem continuação. Os testes de reprodução existentes permanecem na suíte.
 
 ## Arquivos de capa
 
-Os parsers Spotify e YouTube Music preservam `artworkVariants` com URL e dimensões
+Os parsers Spotify, YouTube Music, iTunes e Deezer preservam `artworkVariants` com URL e dimensões
 quando fornecidas. `artworkUrl` continua sendo a miniatura usada pelo painel atual.
 `src/albums/album-artwork.ts` obtém as variantes, decodifica cada arquivo e escolhe a maior
 área real entre as imagens válidas dentro do limite. Não amplia nem recorta imagens.
@@ -248,7 +263,7 @@ avaliadas. Não inventa um tamanho máximo comum a todos os álbuns.
 O canal `metadata:artwork` aceita somente páginas da extensão, com origem Libib
 válida, serviço e ID reconhecidos e URLs HTTPS dos CDNs permitidos. O manifesto
 inclui `i.scdn.co`, `lh3.googleusercontent.com`, `yt3.googleusercontent.com` e
-`i.ytimg.com` para fetch no worker. As requisições são GET, sem credenciais ou
+`i.ytimg.com`, subdomínios de `mzstatic.com` e `cdn-images.dzcdn.net` para fetch no worker. As requisições são GET, sem credenciais ou
 referrer, com redirecionamento bloqueado e prazo total de 20 segundos.
 Fontes: [requisições de rede em extensões](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests)
 e [variantes de imagem do Spotify](https://developer.spotify.com/documentation/web-api/reference/get-an-album).
@@ -364,7 +379,8 @@ bases. Fechar libera imagens e aborta operações pendentes. Conexão é relida 
 foco, visibilidade, storage e ação explícita sem limpar o trabalho.
 
 Nas duas entradas, o patch inclui somente os campos marcados, permitindo título,
-artistas ou capa isoladamente. File é clonado pelo postMessage do iframe e pela
+artistas, capa ou descrição isoladamente. A descrição exige confirmação e conferência
+do texto original. File é clonado pelo postMessage do iframe e pela
 ponte MAIN, sem passar por JSON ou URL de imagem no Libib. A edição rápida envia
 cada campo pelo handler nativo; a completa somente prepara o formulário.
 A seleção para reprodução em `src/pages/player/album-panel.*` permanece independente.
@@ -522,3 +538,330 @@ na edição completa fica imediatamente antes de Salvar; a edição rápida fech
 popup de streaming somente após confirmar todos os campos escolhidos. Falha
 parcial ou falta de confirmação conserva o popup aberto com o resultado por campo.
 A edição completa continua preenchendo o formulário e aguardando o Salvar nativo.
+
+## Integração iTunes
+
+`streamings/itunes.ts` consulta a Search API da Apple, por título/artista e país BR,
+sem cookies ou autenticação. O identificador interno `apple-music` é preservado
+por compatibilidade; as interfaces mostram iTunes. Não usa UPC/EAN nesta versão.
+Apenas links HTTPS de álbum em music.apple.com/br, com o mesmo ID retornado,
+são aceitos para abertura. Miniaturas retornadas usam subdomínios mzstatic.com.
+
+A Search API não documenta continuação: o teto de 200 resultados é tratado como
+busca possivelmente incompleta, exigindo escolha ou refinamento. Não fabricar
+offset nem presumir que um candidato deduplicado represente busca completa.
+O manifesto autoriza itunes.apple.com para consultas pelo worker e subdomínios
+*.mzstatic.com para obter os arquivos públicos de capa usados na composição.
+
+O fluxo compartilha mensagens de reprodução existentes, seleção e armazenamento
+por serviço, mantendo os nomes das mensagens para compatibilidade. Destino app
+é exclusivo do Spotify; iTunes, YouTube Music e Deezer abrem no navegador.
+A composição de metadados aceita Spotify, YouTube Music, iTunes e Deezer.
+`METADATA_SERVICE_IDS` centraliza as fontes e a contagem do editor. Busca explícita
+e obtenção de capa não mudam preferências de reprodução ou lembranças. Os IDs
+numéricos e links Apple Music BR são validados antes de adicionar o card.
+As capas iTunes usam apenas variantes retornadas, medindo os bytes decodificados
+e preservando limites, avisos e controle de referências dos outros serviços.
+
+Quando a busca inicial não contém título normalizado e nome de artista
+correspondentes, o cliente complementa a consulta. Reutiliza IDs de artistas com
+nome correspondente já encontrados ou busca `entity=musicArtist` (até 25 resultados),
+compara nomes normalizados e consulta `/lookup` para todos os IDs correspondentes
+até três. Mais homônimos não são reduzidos arbitrariamente aos três primeiros;
+a busca permanece parcial e pede refinamento. Sem artista, não há complemento.
+
+O lookup exige o registro do artista consultado, com ID e nome correspondentes,
+e valida os álbuns pelo parser existente. Aceita até 200 coleções mais o registro
+do artista; atingir o teto de coleções continua sendo uma lista parcial. Os álbuns
+são deduplicados por ID e a resolução compartilhada preserva escolha e lembranças.
+Nenhuma lista ambígua ou parcial autoriza abertura automática. O catálogo pode omitir
+resultados mesmo abaixo dos limites; o complemento não garante completude.
+
+O orçamento é de cinco chamadas por busca, todas dentro do mesmo prazo de 20 segundos.
+Somente complementos validados entram no cache em memória (64 entradas, dez minutos).
+A consulta inicial continua sendo executada, erros não são cacheados e o cache desaparece
+ao reiniciar o worker. HTTP429 continua sujeito ao tratamento de limite, sem retry
+imediato ou garantia de quota por minuto. Falha de complemento interrompe novas chamadas,
+preserva candidatos válidos e retorna `AlbumSearchPage.notice`; a resolução e os textos
+de status das três páginas propagam esse aviso. Sem candidatos válidos, o erro é mantido.
+
+Eventos iTunes informam `stage` (`album-search`, `artist-search`, `artist-albums`),
+cache e resultado do complemento, além das falhas técnicas existentes. A amostra
+`tests/fixtures/itunes-artist-albums.json` preserva somente campos necessários de
+uma sondagem pública com álbum omitido na busca textual e encontrado por artista.
+
+`tests/itunes.test.mjs` cobre o cliente; `tests/opening.test.mjs` cobre o worker,
+lembranças, destinos, diagnóstico e separação dos erros. A amostra pública
+`tests/fixtures/itunes-skank-siderado.json` foi consultada sem credenciais.
+
+## Diagnóstico comum das consultas
+
+`streamings/request-diagnostics.ts` centraliza o relógio monotônico, o prazo de
+20 segundos, os sinais de cancelamento e os eventos de falha de Spotify, YouTube
+Music, iTunes e Deezer. Cada evento informa etapa, duração, HTTP quando disponível e
+detalhes do erro limitados a nomes, mensagens padrão e códigos técnicos conhecidos.
+Não exporta erros inteiros, stacks, mensagens arbitrárias, tokens ou cadeias
+recursivas de causas. O contrato comum de resolução mantém `network` para timeout;
+o evento técnico usa `timeout` e a mensagem informa o prazo excedido.
+
+Erros lendo o corpo por falha de transporte preservam o status recebido e
+continuam sendo falhas de rede; SyntaxError na decodificação é resposta inválida.
+`tests/streaming-diagnostics.test.mjs` cobre os mesmos cenários nos quatro clientes;
+`tests/opening.test.mjs` verifica persistência e exportação dos eventos por serviço.
+
+## Ícone da extensão e diagnóstico de capas
+
+`src/assets/collection-to-play-icon.svg` é a fonte vetorial própria da extensão.
+As versões PNG16/32/48/128 são declaradas no manifesto para a extensão e sua
+ação na barra do Chrome; CRXJS inclui esses recursos no pacote. Origem e licença
+constam de NOTICE.txt.
+
+`fetchAlbumArtwork` emite eventos limitados a metadados de cada variante: início,
+HTTP, leitura/validação/decodificação, dimensões e seleção ou falha. URLs são
+registradas sem query/fragmento; imagens e dados de autenticação não entram no log.
+O worker armazena até cinco operações por serviço em `<serviço>.artworkDiagnostic`,
+com até 100 eventos cada. Escritas são serializadas para preservar downloads
+simultâneos; falhar ao persistir o diagnóstico não invalida uma imagem utilizável.
+A exportação agrega esses registros em `artworkByService`, independentemente da
+preferência de reprodução e mesmo quando não há uma busca recente para exportar.
+
+
+## Integração Deezer
+
+`src/streamings/deezer.ts` consulta `https://api.deezer.com/search/album` por título e
+artista, sem cookies, login ou UPC/EAN. Valida IDs numéricos, links de álbum e capas
+retornadas. A continuação é vinculada à consulta e ao índice; o worker não segue
+URLs arbitrárias recebidas da API. Uma lista parcial mantém a escolha manual.
+
+O serviço participa de reprodução, metadados e diagnóstico. Erros JSON com HTTP 200
+são tratados como falha, separados de catálogo vazio. `src/manifest.json` autoriza
+`api.deezer.com` e `cdn-images.dzcdn.net`; a obtenção de capas reutiliza os limites
+e o decodificador comuns. A amostra e os testes estão em
+`tests/fixtures/deezer-skank-siderado.json`, `tests/deezer.test.mjs` e nos testes de
+capas, composição e abertura. A quota numérica não foi verificada.
+
+## Indicadores e ações do editor
+
+A comparação de capas fica na interface e usa largura × altura dos arquivos
+realmente decodificados. O selo identifica a maior resolução entre os cards atuais,
+explicita empates e permanece provisório enquanto outra capa carrega. Remover um
+card recalcula a comparação. A resolução não representa uma avaliação visual da
+compressão ou nitidez e não altera a seleção ou o formulário.
+
+Título, artistas ou capa ausentes produzem o destaque de erro e um indicador com
+`title` e nome acessível explicando a falta. Uma capa pendente não é considerada
+ausente. Falhas de capa preservam os outros campos disponíveis.
+
+`ActionIcon` em `src/components/ui-components.tsx` centraliza os SVGs decorativos
+de ações comuns. Os textos dos botões permanecem como nomes acessíveis; os ícones
+usam `aria-hidden`, cor herdada e dimensões locais. Indicadores de atividade
+substituem o ícone de busca/aplicação enquanto a operação estiver em andamento.
+
+
+## Descrição do disco
+
+`src/albums/album-description.ts` define o documento de descrição, valida a identidade
+fonte/álbum e formata texto usando apenas dados retornados. Deezer usa `/album/{id}`;
+iTunes usa `/lookup?id=...&entity=song&country=br&limit=200`; Spotify reutiliza a sessão
+e `authorizedGet` em `descriptionDetails`. YouTube Music fica limitado aos dados já
+comprovados da busca, com orientação explícita sobre os campos ausentes. Não se presume
+resenha editorial ou biografia. As fontes são verificadas antes de consultar IDs fixados
+em endpoints conhecidos; URLs de paginação retornadas não são seguidas automaticamente.
+
+Os parsers também preservam tipo conhecido (`album_type`/`record_type`), UPC/EAN
+validados pelo mesmo normalizador de códigos do projeto, direitos autorais e durações.
+Deezer usa segundos (`duration`), convertidos para milissegundos; iTunes usa
+`trackTimeMillis`, Spotify usa `duration_ms`. A duração total fornecida pelo serviço
+tem prioridade; uma soma exige lista completa, contagem conhecida igual ao total de
+faixas e duração positiva válida em todas elas. Dados inválidos ou ausentes são omitidos.
+Direitos vêm de `copyrights` no Spotify e `copyright` da coleção iTunes; não se deduz
+gravadora desses textos. O tipo genérico `collectionType: Album` do iTunes não é
+usado para distinguir álbum, single ou coletânea. Os campos complementares não
+alteram `AlbumDescription.fields` ou os seis grupos do indicador. Não há inclusão de
+conteúdo explícito ou quantidade de discos, nem novas consultas para esses campos.
+
+`src/streamings/album-description.ts` reúne as consultas sob demanda e o prazo de
+20 segundos. A lista fica explicitamente parcial quando a página de detalhes ou o
+limite de 200 faixas não permite comprovar completude. A formatação limita o texto
+a 5.000 caracteres e conserva o link da fonte. Não se inventam gravadora, gêneros,
+datas ou numeração de faixas ausentes. `tests/fixtures/description-deezer.json` e
+`description-itunes.json` contêm amostras públicas reduzidas, sem sessão.
+
+O worker oferece `metadata:description` somente às páginas da extensão, com serviço,
+ID/endereço e origem Libib validados. Não recebe a descrição privada atual do catálogo.
+Registra até cinco tentativas por serviço em `descriptionDiagnostic`, serializando
+as gravações; o log exportado agrega `descriptionByService`. Os eventos contêm somente
+ID, etapa, tempo, status/código permitido e quantidade de faixas, sem texto gerado,
+texto original, cabeçalhos de autenticação ou corpos brutos.
+
+`AlbumComposition` mantém carregamento, erro e documento de descrição por card.
+Gerar não copia nem aplica. Copiar inclui o campo e mantém sua origem; edição manual
+preserva a fonte anterior. A remoção do card não apaga texto copiado. Respostas antigas
+são ignoradas após remover/trocar o card; o controle da confirmação é atualizado junto
+à mudança do rascunho, sem um efeito posterior que possa desfazer um clique válido.
+
+A descrição atual chega ao iframe por mensagem entre pai e filho com origem, janela
+e sessão verificadas, sem entrar na URL. O contexto informa se existe controle nativo
+compatível. O campo começa excluído; o usuário precisa confirmar explicitamente a
+substituição. O conteúdo esperado é comparado novamente antes do preenchimento/gravação.
+Somente as quebras de linha equivalentes CRLF/LF são normalizadas para compatibilidade
+com textarea/FormData; outras diferenças bloqueiam a substituição. A verificação não
+é uma transação entre abas ou clientes remotos.
+
+Na edição completa, `readDescriptionControl` aceita somente um input textual ou textarea
+nativo, conectado, visível, editável, pertencente ao formulário e não marcado `no-post`.
+O patch valida todos os campos e limites antes de preencher. A comparação é repetida
+após qualquer espera de decodificação da capa. Apenas o Salvar do Libib grava os dados.
+
+Na rápida, a disponibilidade depende de descrição textual e template do campo no retorno
+nativo de `load-fields`. A gravação confirma novamente o texto atual e usa exclusivamente
+o item `data-key="description"` e seu handler real de Salvar. `NativeSaveRequest` exige
+confirmação e conteúdo esperado; o controle aberto precisa ser textual, editável e isolado.
+Não se adicionam campos inferidos ao formulário. O resultado nativo atualiza o cache privado
+do Libib antes da confirmação ao iframe. Falha ou resposta sem confirmação interrompe
+os próximos campos, sem retry automático. O diagnóstico inclui a etapa `description`
+sem guardar valores privados.
+
+Validação: `tests/album-description.test.mjs`, composição, worker, leitura, preenchimento
+e ponte nativa cobrem origem, dados ausentes/parciais, limites, cancelamento, confirmação,
+texto desatualizado, isolamento por campo, controle incompatível e privacidade. Chromium
+com os scripts públicos capturados do Libib e endpoints simulados conferiu as duas edições;
+Deezer e iTunes também foram consultados ao vivo, sem escrita na coleção real.
+
+
+Quando a busca já contém todos os dados usados pela descrição daquela fonte,
+`descriptionFromSearch` monta a prévia localmente em `AlbumComposition.addAlbum`.
+Hoje isso se aplica ao YouTube Music: não há mensagem ao worker nem fetch adicional,
+e o botão Gerar descrição não aparece. A mesma função atende o canal explícito,
+sem duplicar a regra de formatação. Nos demais serviços, os detalhes continuam sendo
+consultados sob demanda. Texto copiado e confirmação permanecem independentes da
+prévia. Avisos em `notes` são informativos do painel e não integram `text`.
+
+
+## Completude da descrição nos cards
+
+`AlbumDescription.fields` informa quais dos seis grupos foram comprovados pelo
+formatador, sem inferir completude pelo tamanho do texto. O grupo de faixas só é
+marcado quando a lista obtida é completa e cabe no texto gerado. Essa projeção não
+altera `text` nem os avisos informativos separados em `notes`.
+
+`src/albums/description-completeness.ts` calcula pontos, dados ausentes, líderes e
+estados por card. Antes da consulta, usa somente os dados já conhecidos na busca;
+não dispara requisições. Só descrições disponíveis (`ready`), geradas sob demanda
+ou automaticamente, concorrem ao selo. Empates preservam todos os líderes e toda
+lista com descrições disponíveis tem ao menos um, mesmo com pontuação zero. Estados não consultado, carregando ou com
+falha tornam o selo provisório. Dados esperados ausentes são avisados após consulta,
+e erros de consulta têm explicação própria. O editor agrega descrição, capa e outros
+campos em um indicador: descrição com 6/6 normal, 1–5/6 informativa (amarelo, `i`)
+e 0/6 negativa (vermelho, `!`). Ausência de capa, título ou artistas tem prioridade
+para o alerta vermelho. Dados pendentes não geram alerta de ausência. Isso não
+altera o rascunho ou a confirmação.
+
+`tests/description-completeness.test.mjs` cobre ranking por dados, empates, remoção,
+listas vazias/sem informação, estados pendentes, falhas e faixas parciais.
+A prévia temporária com quatro cenários e nove cards foi usada para validar os
+indicadores e removida após aprovação do desenvolvedor, junto com o HTML independente
+e seu gerador. O mock não faz parte dos fontes nem do pacote atual.
+
+## Restauração dos campos compostos
+
+`AlbumComposition.resetField` restaura somente o campo escolhido ao valor inicial,
+com origem `catalog` e `included: false`. O contexto original da descrição fica
+disponível para restauração mesmo se recebido após começar um rascunho. A capa
+inicial conserva uma referência independente até `dispose`; restaurar libera
+apenas a referência da escolha composta, sem retirar a capa de um card.
+O formulário oferece o mesmo ícone de restauração da busca nos quatro campos;
+a confirmação de descrição é revogada pelo assinante existente do modelo.
+
+## Apoio voluntário
+
+`src/shared/support.ts` concentra exclusivamente os dados públicos em
+`SUPPORT_RECEIVING`. Pix Copia e Cola, Bitcoin e LNURL foram fornecidos pelo
+responsável; o link PayPal foi montado com o e-mail informado e o recebedor foi
+confirmado pelo responsável na página externa. Meios sem valor são omitidos e,
+sem nenhum meio configurado, o botão não aparece. Não incluir credenciais ou dados privados nesse arquivo.
+
+`ProjectSupport`, em `src/components/project-support.tsx`, integra o rodapé das
+configurações e apresenta um modal com escolha do meio, QR Code local, texto
+selecionável, cópia com confirmação e alternativa manual quando o clipboard falha.
+PayPal aceita links HTTPS públicos do próprio serviço; a página externa só abre
+pela ação do usuário. Não há geração de faturas, valor fixo, verificação de saldo,
+processamento de pagamentos ou consultas a serviços para gerar o QR Code.
+
+`qrcode` gera a matriz, renderizada em SVG com margem de quatro módulos e contraste
+preto/branco. `tests/support.test.mjs` usa `jsqr` apenas em desenvolvimento para
+decodificar o SVG rasterizado e conferir correspondência exata com o valor copiado.
+Os testes usam dados fictícios e os destinos reais configurados para conferir a
+correspondência entre o QR, o texto copiado e os SVGs do README. Avisos
+de licença das dependências empacotadas estão em `NOTICE.txt`.
+
+Validação inicial: CRC do Pix e ausência do campo de valor obrigatório; checksum
+Bech32, rede principal e programa witness do Bitcoin; checksum/decodificação do
+LNURL e consulta somente de leitura que retornou `payRequest`. O callback de
+geração de invoice não foi chamado. O PayPal recusou a consulta automatizada com
+HTTP 403, e o responsável confirmou a página correta para seu e-mail, projeto e BRL.
+Chromium conferiu cópia, fallback manual, QR/texto, link externo, foco ao fechar e
+layout no popup e em tela inteira. Nenhuma transferência foi feita.
+
+Os SVGs `src/assets/support-*.svg` são usados pelo README e correspondem aos mesmos
+dados de `SUPPORT_RECEIVING`. Ao trocar um destino, atualizar seu SVG e o texto do
+README e repetir a validação; `tests/support.test.mjs` verifica essa correspondência.
+
+## Combinação de descrições
+
+`AlbumComposition.prepareDescriptions` reaproveita `loadDescription` e sua deduplicação,
+cache por card, tratamento de falha e descarte de respostas antigas. O editor bloqueia
+mudanças durante a preparação e abre o modal somente quando há descrição disponível.
+O modal recebe uma fotografia dos dados atuais, sem recursos de imagem; nenhuma
+consulta nova é feita para descrições prontas e nenhum rascunho é alterado ao preparar.
+
+`AlbumDescription.sections` é montado diretamente pelo formatador com os dados
+comprovados, sem tentar interpretar nomes de faixas ou texto do serviço como metadados.
+A lista parcial conserva seu aviso no bloco de faixas; `notes` continua informativo.
+O texto individual por serviço permanece igual ao formato anterior.
+
+`src/albums/description-merge.ts` guarda uma composição independente por bloco. Uma
+escolha explícita substitui o dado da mesma categoria; as faixas são um bloco inteiro.
+Antes de edição manual, os dados são ordenados como a descrição individual. Depois
+da edição, alterações manuais são preservadas e somente blocos copiados ainda
+intactos conservam atribuição de origem. A atribuição é opcional e conta no limite
+de 5.000 caracteres. Um único álbum efetivamente usado recebe o rodapé normal
+`Fonte: serviço` seguido do link; múltiplos álbuns recebem `Fontes`, com uma linha
+`Serviço - atributo, atributo` por álbum e o link na linha seguinte, sem repetir
+valores ou listas de faixas. A opção vem marcada ao abrir o modal e pode ser desmarcada. A quantidade considera as escolhas,
+não os cards disponíveis. Não há truncamento
+silencioso para confirmar uma combinação acima do limite.
+
+`src/components/description-merge-dialog.tsx` apresenta fontes, falhas, seleção e
+texto editável em um `dialog` nativo. `Descrição combinada` contém o texto completo,
+inclusive o rodapé opcional de fontes, que também pode ser editado. Confirmar usa
+esse texto sem acrescentar um rodapé oculto ou uma segunda prévia. Alterações
+manuais no rodapé são preservadas ao trocar dados; desmarcar fontes retira esse
+rodapé. Uma substituição que atravessa corpo e rodapé passa a ser texto manual. O ciclo de abrir/fechar usa efeito de layout e
+remove o listener de fechamento antes de desmontar, permitindo reabertura imediata.
+Confirmar chama `AlbumComposition.useMergedDescription`, que valida a identidade
+atual das fontes, atualiza somente descrição e informa origem `merged`. Edições
+posteriores preservam essa origem como base; restaurar retorna à descrição do Libib.
+
+O editor revoga explicitamente a confirmação de substituição ao usar a combinação,
+inclusive se o texto for igual ao anterior. O modal é renderizado fora do formulário
+principal; cancelar/Esc preserva texto e confirmação anteriores. A gravação continua
+nos fluxos nativos já existentes, com conferência do original.
+
+`tests/description-merge.test.mjs` cobre seleção, conflitos, listas inteiras, fontes
+opcionais, edição manual e limite. `tests/album-composition.test.mjs` cobre preparação,
+deduplicação, cancelamento e aplicação somente da descrição. Chromium com Libib e
+serviços simulados conferiu os dois editores, reabertura, falha parcial, fontes,
+confirmação, retorno ao formulário e layouts 320/680/1144px, sem gravação na coleção real.
+
+
+O teto comum de descrição é 5.000 caracteres, conforme a documentação de
+[importação CSV do Libib](https://support.libib.com/libib/website/add-items.html#csv-import).
+A documentação não comprova separadamente o limite interno dos editores; adotamos
+o valor documentado como teto comum, sem teste de escrita real para medir o servidor.
+`descriptionLimit` aplica também um `maxlength` nativo menor, inclusive zero.
+`LibibEditClient` lê o atributo sem executar o HTML recebido; o editor completo usa
+a propriedade do controle. O contexto transmite esse limite ao formulário e ao
+modal de combinação. O contador inclui fontes; excessos impedem aplicação, sem
+truncar o rascunho ou a descrição original. A validação comum também protege geração,
+patch e ponte nativa. Antes de escrever, os fluxos verificam novamente o campo nativo.

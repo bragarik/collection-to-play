@@ -24,3 +24,5 @@
 @layer components {
   .artwork-placeholder { display: grid; place-items: center; color: var(--color-primary); }
 }
+
+.action-icon { display: inline-block; width: 16px; height: 16px; flex-shrink: 0; vertical-align: -0.15em; }

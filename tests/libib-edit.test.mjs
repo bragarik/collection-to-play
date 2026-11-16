@@ -253,3 +253,16 @@ test("timeout também cobre leitura do corpo da resposta", async () => {
   })});
   await assert.rejects(client.saveCreators(target, "Artista"), failure("timeout", "creators", true));
 });
+
+test("leitura inclui descrição somente quando o serviço fornece campo nativo compatível",async()=>{
+ const data=loaded();data.item.description="Texto privado";data.input_fields.description='<textarea name="description"></textarea>';
+ const value=setup([Response.json(data)]);assert.equal((await value.client.load(target)).description,"Texto privado");
+ delete data.input_fields.description;const absent=setup([Response.json(data)]);assert.equal((await absent.client.load(target)).description,undefined);
+});
+
+test('lê limite do controle nativo sem executar HTML e limita ao máximo comum',async()=>{
+ for(const [attribute,expected] of [['',5000],['maxlength="4200"',4200],["maxlength='4000'",4000],['maxlength=3000',3000],['maxlength="20000"',5000],['maxlength="0"',0],['maxlength="-1"',5000]]){
+  const data=loaded();data.item.description='Original';data.input_fields.description=`<textarea ${attribute} name="description"></textarea>`;
+  assert.equal((await setup([Response.json(data)]).client.load(target)).descriptionMaxLength,expected);
+ }
+});

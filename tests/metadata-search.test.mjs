@@ -7,6 +7,7 @@ const configurationUrl = "chrome-extension://controlled/setup.html";
 const services = connected => ({configurationUrl, services: [
   {id: "spotify", name: "Spotify", requiresAuthentication: true, connected},
   {id: "youtube-music", name: "YouTube Music", requiresAuthentication: false, connected: true},
+  {id: "apple-music", name: "iTunes", requiresAuthentication: false, connected: true},
 ]});
 const album = (service, id = "album") => ({service, id, title: "Discovery", artists: [{id: "artist", name: "Daft Punk"}], url: "https://example.com/album/" + id});
 const reply = (service, ids = ["album"], nextPage) => ({service, configurationUrl, connectionRequired: false, searchUrl: "https://example.com/search",
@@ -104,7 +105,7 @@ test("resposta de outro streaming ou candidato inválido é recusado sem alterar
   result = reply("spotify"); result.resolution.candidates[0].service = "youtube-music";
   await assert.rejects(session.search(query), error => error.code === "invalid-response");
   assert.equal(session.snapshot().albums.length, 0);
-  assert.throws(() => session.selectService("deezer"), TypeError);
+  assert.throws(() => session.selectService("amazon-music"), TypeError);
   assert.equal(session.service, "spotify");
 });
 
@@ -122,4 +123,18 @@ test("troca durante verificação de conexão descarta busca e entrada é copiad
   const input = {...query}; const result = session.search(input); input.title = "Modified";
   session.selectService("youtube-music"); pending.resolve(services(true));
   assert.equal(await result, undefined); assert.equal(calls, 0); assert.equal(session.snapshot("spotify").albums.length, 0);
+});
+
+
+test("sessão iTunes pesquisa sem autenticação e isola resultados das outras fontes", async () => {
+  const calls = [];
+  const session = new MetadataSearchSession("apple-music", {services: async () => services(false), search: async (service, input, next) => {
+    calls.push({service, input, next}); return reply(service, ["itunes-album"]);
+  }});
+  await session.search(query);
+  assert.equal(calls[0].service, "apple-music"); assert.equal(calls[0].next, undefined);
+  assert.equal(session.snapshot().albums[0].service, "apple-music");
+  session.selectService("youtube-music"); assert.equal(session.snapshot().albums.length, 0);
+  session.selectService("apple-music"); assert.equal(session.snapshot().albums.length, 1);
+  await assert.rejects(session.search(query, true), {code: "invalid-query"});
 });

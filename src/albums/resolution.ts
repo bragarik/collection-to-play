@@ -47,6 +47,7 @@ export type AlbumResolution =
       readonly candidates: readonly AlbumCandidate[];
       readonly rememberAlbumByDefault: false;
       readonly incomplete?: boolean;
+      readonly notice?: string;
       readonly nextPage?: string;
     }
   | {
@@ -254,6 +255,7 @@ export async function searchAlbums(
       if (result.status === "failed") return result;
       return { status: "choose", candidates: result.status === "choose" ? result.candidates : [],
         rememberAlbumByDefault: false, incomplete: true,
+        ...(candidates.notice ? {notice: candidates.notice} : {}),
         ...(candidates.nextPage ? { nextPage: candidates.nextPage } : {}) };
     }
     return resolveCandidates(query, adapter.id, candidates, choice);

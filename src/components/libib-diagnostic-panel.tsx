@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from "preact/hooks";
 import type {LibibDiagnosticsState} from "../libib/libib-diagnostic-store.js";
 import {checkMessage, libibDiagnosticSummary} from "../libib/libib-diagnostic-ui.js";
-import {downloadJson, extensionRequest, Feedback} from "./ui-components.js";
+import {ActionIcon, downloadJson, extensionRequest, Feedback} from "./ui-components.js";
 
 export function LibibDiagnosticPanel({revision}: {revision: number}) {
   const [latest, setLatest] = useState<LibibDiagnosticsState>(), [loading, setLoading] = useState(true), [exporting, setExporting] = useState(false);
@@ -47,7 +47,7 @@ export function LibibDiagnosticPanel({revision}: {revision: number}) {
       <ul id="libib-health-checks">{latest?.latest.checks.map(check => <li key={check.operation}><strong>{labels[check.operation]}: </strong>{checkMessage(check)}</li>)}</ul>
       <p id="libib-health-meta" class="note">{latest ? `Último registro: ${new Date(latest.latest.at).toLocaleString("pt-BR")} · extensão ${latest.latest.extensionVersion} · ${latest.report.events.length} ocorrências.` : ""}</p>
       <p class="note">Mostra a última avaliação registrada. Reconhecer a estrutura não garante o funcionamento de todas as operações.</p>
-      <div class="diagnostic-actions"><button id="refresh-libib-diagnostics" class="btn btn-soft btn-sm" type="button" disabled={loading} onClick={() => void refresh()}>Atualizar informações</button><button id="export-libib-diagnostics" class="btn btn-soft btn-sm" type="button" disabled={loading || exporting || !latest} onClick={() => void exportReport()}>Exportar diagnóstico Libib</button></div>
+      <div class="diagnostic-actions"><button id="refresh-libib-diagnostics" class="btn btn-soft btn-sm" type="button" disabled={loading} onClick={() => void refresh()}><ActionIcon name="refresh"/>Atualizar informações</button><button id="export-libib-diagnostics" class="btn btn-soft btn-sm" type="button" disabled={loading || exporting || !latest} onClick={() => void exportReport()}><ActionIcon name="download"/>Exportar diagnóstico Libib</button></div>
       <Feedback id="libib-health-feedback">{feedback}</Feedback>
     </div>
   </details>;

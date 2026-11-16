@@ -77,7 +77,7 @@ const patchContext=value=>readLibibFullEditor(value.form,url);
 
 test('preenchimento seletivo muda só o título e não consulta nem altera FileList',async()=>{
  const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');const v=selectiveSetup(),files=v.image.files;
- v.form.querySelectorAll=()=>{throw Error('Imagem não escolhida');};
+ v.form.querySelectorAll=selector=>{if(selector.includes('description'))return [];throw Error('Imagem não escolhida');};
  await fillLibibFullEditorPatch(patchContext(v),url,{title:' Novo título '});
  assert.equal(v.title.value,'Novo título');assert.equal(v.creators.value,'Artista antigo');assert.equal(v.image.files,files);
 });
@@ -138,5 +138,39 @@ test('arquivo corrompido ou dimensões inválidas não altera texto escolhido ju
  for(const check of [async()=>{throw Error('decode');},async()=>({width:0,height:1,close(){}})]){
   const v=selectiveSetup(),files=v.image.files;await assert.rejects(fillLibibFullEditorPatch(patchContext(v),url,{title:'Novo',artwork:pngFile()},{decode:check}));
   assert.equal(v.title.value,'Título antigo');assert.equal(v.image.files,files);
+ }
+});
+
+function descriptionSetup(){
+ const value=selectiveSetup();
+ const description={value:'Descrição original',tagName:'TEXTAREA',type:'textarea',disabled:false,readOnly:false,isConnected:true,form:value.form,maxLength:5000,classList:{contains:()=>false},getClientRects:()=>[1]};
+ const query=value.form.querySelectorAll;value.form.querySelectorAll=selector=>selector.includes('description')?[description]:query(selector);
+ return {...value,description};
+}
+test('descrição é preenchida isoladamente somente com confirmação e texto original correspondente',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');const value=descriptionSetup(),files=value.image.files;
+ await fillLibibFullEditorPatch(patchContext(value),url,{description:'Nova descrição'},{descriptionReplacement:{confirmed:true,expected:'Descrição original'}});
+ assert.equal(value.description.value,'Nova descrição');assert.equal(value.title.value,'Título antigo');assert.equal(value.creators.value,'Artista antigo');assert.equal(value.image.files,files);
+});
+test('descrição não confirmada, alterada ou sem controle compatível impede qualquer preenchimento',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');
+ for(const [mutate,confirmed] of [[v=>{},false],[v=>{v.description.value='Alterada';},true],[v=>{v.description.disabled=true;},true],[v=>{v.description.readOnly=true;},true],[v=>{v.description.getClientRects=()=>[];},true],[v=>{v.description.maxLength=2;},true]]){
+  const value=descriptionSetup();mutate(value);const before=value.description.value;
+  await assert.rejects(fillLibibFullEditorPatch(patchContext(value),url,{title:'Novo',description:'Nova descrição'},{descriptionReplacement:{confirmed,expected:'Descrição original'}}));
+  assert.equal(value.description.value,before);assert.equal(value.title.value,'Título antigo');
+ }
+});
+test('mudança de descrição durante leitura da capa interrompe o preenchimento antes de qualquer campo',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');const value=descriptionSetup(),files=value.image.files;
+ await assert.rejects(fillLibibFullEditorPatch(patchContext(value),url,{title:'Novo',description:'Nova',artwork:pngFile()},{descriptionReplacement:{confirmed:true,expected:'Descrição original'},decode:async()=>{value.description.value='Alterada durante espera';return {width:640,height:640,close(){}};}}),/descrição mudou/);
+ assert.equal(value.description.value,'Alterada durante espera');assert.equal(value.title.value,'Título antigo');assert.equal(value.image.files,files);
+});
+
+test('rejeita excesso e limite zero antes de preencher qualquer campo',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');
+ for(const [limit,text] of [[20000,'a'.repeat(5001)],[4,'abcde'],[0,'a']]){
+  const value=descriptionSetup();value.description.maxLength=limit;
+  await assert.rejects(fillLibibFullEditorPatch(patchContext(value),url,{title:'Novo',description:text},{descriptionReplacement:{confirmed:true,expected:'Descrição original'}}));
+  assert.equal(value.description.value,'Descrição original');assert.equal(value.title.value,'Título antigo');
  }
 });
