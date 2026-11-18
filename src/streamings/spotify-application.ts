@@ -14,7 +14,7 @@ export class SpotifyApplication {
     save(clientId: string): Promise<void>;
   }) {
     this.ready = configuration.load().then(value => {
-      if (value !== undefined && (typeof value !== "string" || !/^[a-f0-9]{32}$/i.test(value))) throw new Error("A configuração Spotify salva é inválida.");
+      if (value !== undefined && value !== "" && (typeof value !== "string" || !/^[a-f0-9]{32}$/i.test(value))) throw new Error("A configuração Spotify salva é inválida.");
       this.clientId = typeof value === "string" ? value.toLowerCase() : "";
       this.current = this.createClient();
     });
@@ -44,7 +44,10 @@ export class SpotifyApplication {
   async configuredClientId(): Promise<string> {await this.get();return this.clientId;}
   setClientId(value: unknown): Promise<void> {
     if (typeof value !== "string" || !/^[a-f0-9]{32}$/i.test(value.trim())) return Promise.reject(new StreamingError("invalid-query", "Informe um Client ID Spotify válido com 32 caracteres hexadecimais."));
-    const clientId = value.trim().toLowerCase();
+    return this.changeClientId(value.trim().toLowerCase());
+  }
+  clearClientId(): Promise<void> {return this.changeClientId("");}
+  private changeClientId(clientId: string): Promise<void> {
     const operation = this.changes.then(async () => {
       await this.ready;
       if (clientId === this.clientId) return;

@@ -7,7 +7,7 @@ export interface MergeCard {
   readonly descriptionError?: string | undefined;
 }
 export interface MergeSelection extends DescriptionSection {readonly service: MetadataServiceId; readonly albumId: string}
-const SECTION_ORDER: readonly DescriptionSectionField[] = ["title", "artists", "releaseType", "releaseDate", "label", "genres", "trackCount", "duration", "upc", "ean", "copyrights", "tracks", "description"];
+const SECTION_ORDER: readonly DescriptionSectionField[] = ["title", "artists", "releaseType", "releaseDate", "label", "genres", "trackCount", "duration", "upc", "ean", "copyrights", "tags", "mbid", "about", "tracks", "description"];
 
 function blockPosition(text: string, block: string): number {
   let at = text.indexOf(block);
@@ -30,10 +30,10 @@ export class DescriptionMerge {
   includesSources(): boolean {return this.sourcesIncluded;}
   setIncludeSources(value: boolean): void {
     this.sourcesIncluded = value;this.attributionEdited = false;
-    this.attribution = value ? this.sourceText() : "";
+    this.attribution = this.sourceText(value);
   }
   private refreshAttribution(): void {
-    if (!this.attributionEdited) this.attribution = this.sourcesIncluded ? this.sourceText() : "";
+    if (!this.attributionEdited) this.attribution = this.sourceText(this.sourcesIncluded);
   }
   constructor(cards: readonly MergeCard[]) {this.cards = structuredClone(cards);}
   sections(card: MergeCard): readonly DescriptionSection[] {
@@ -45,7 +45,15 @@ export class DescriptionMerge {
     const value = this.chosen.get(field);return value ? structuredClone(value) : undefined;
   }
   private reconcile(): void {
-    for (const [field, selection] of this.chosen) if (blockPosition(this.value, selection.text) < 0) this.chosen.delete(field);
+    for (const [field, selection] of this.chosen) {
+      if (blockPosition(this.value, selection.text) >= 0) continue;
+      const card=this.cards.find(item=>item.album.service===selection.service&&item.album.id===selection.albumId);
+      const requiredAttribution=card?.description?.attribution;
+      // An edited Last.fm history remains derived from that source; keep its credit until
+      // the user explicitly removes the field or replaces it with another service.
+      if(field==="about"&&requiredAttribution?.fields.includes(field))continue;
+      this.chosen.delete(field);
+    }
   }
   choose(service: MetadataServiceId, field: DescriptionSectionField, toggle = true): void {
     const card = this.cards.find(value => value.album.service === service && value.description);
@@ -87,7 +95,7 @@ export class DescriptionMerge {
     this.edited = true;this.reconcile();this.refreshAttribution();
   }
   text(): string {return this.value + this.attribution;}
-  private sourceText(): string {
+  private sourceText(includeSources = true): string {
     const sources = [...this.chosen.values()];
     const albums = new Map<string, {readonly service: MetadataServiceId; readonly url: string; readonly data: MergeSelection[]}>();
     for (const source of sources) {
@@ -96,12 +104,18 @@ export class DescriptionMerge {
       album.data.push(source);albums.set(key, album);
     }
     const used = [...albums.values()];
+    const required = (album: typeof used[number]): string => {
+      const rule = this.cards.find(card=>card.album.service===album.service&&card.album.url===album.url)?.description?.attribution;
+      return rule&&album.data.some(source=>rule.fields.includes(source.field))?rule.text:"";
+    };
+    if(!includeSources)return used.filter(album=>required(album)).map(album=>`\n\nFonte do texto: ${streamingName(album.service)}\n${album.url}\n${required(album)}`).join("");
+    const suffix=(album: typeof used[number]): string=>required(album)?`\n${required(album)}`:"";
     return !used.length ? "" : used.length === 1
-      ? `\n\nFonte: ${streamingName(used[0]!.service)}\n${used[0]!.url}`
-      : `\n\nFontes:\n${used.map(album => `${streamingName(album.service)} - ${album.data.map(source => source.label).join(", ")}\n${album.url}`).join("\n\n")}`;
+      ? `\n\nFonte: ${streamingName(used[0]!.service)}\n${used[0]!.url}${suffix(used[0]!)}`
+      : `\n\nFontes:\n${used.map(album => `${streamingName(album.service)} - ${album.data.map(source => source.label).join(", ")}\n${album.url}${suffix(album)}`).join("\n\n")}`;
   }
   result(includeSources?: boolean, maxLength = DESCRIPTION_LIMIT): {readonly text: string; readonly sources: readonly MergeSelection[]} {
-    const text = includeSources === undefined ? this.text() : this.value + (includeSources ? this.sourcesIncluded && this.attributionEdited ? this.attribution : this.sourceText() : "");
+    const text = includeSources === undefined ? this.text() : this.value + (this.attributionEdited && includeSources === this.sourcesIncluded ? this.attribution : this.sourceText(includeSources));
     return {text: descriptionText(text, maxLength), sources: [...this.chosen.values()].map(value => structuredClone(value))};
   }
 }

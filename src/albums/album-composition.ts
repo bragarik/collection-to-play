@@ -1,3 +1,5 @@
+import {lastfmDescription} from "./lastfm-source.js";
+import type {LastfmSource} from "./lastfm-source.js";
 import {descriptionFromSearch, descriptionText, type AlbumDescription} from "./album-description.js";
 import {isDeezerAlbumUrl} from "../streamings/deezer.js";
 import {isItunesAlbumUrl} from "../streamings/itunes.js";
@@ -7,7 +9,7 @@ import {isMetadataService, isMetadataAlbumId} from "../streamings/metadata-searc
 
 export type CompositionField = "title" | "artists" | "artwork" | "description";
 export type AlbumSource = Pick<AlbumCandidate, "service" | "id" | "url"> & Partial<Omit<AlbumCandidate, "service" | "id" | "url">>;
-type OriginalFieldSource = {readonly kind: "catalog"} | {
+type OriginalFieldSource = {readonly kind: "complementary";readonly service: "lastfm";readonly albumId: string;readonly albumUrl: string;readonly albumTitle: string} | {readonly kind: "catalog"} | {
   readonly kind: "streaming"; readonly service: MetadataServiceId; readonly albumId: string; readonly albumUrl: string; readonly albumTitle?: string;
 } | {readonly kind: "merged"; readonly sources: readonly {readonly service: MetadataServiceId; readonly albumId: string; readonly albumUrl: string; readonly albumTitle?: string}[]};
 export type FieldSource = OriginalFieldSource | {readonly kind: "manual"; readonly basedOn: OriginalFieldSource};
@@ -44,11 +46,23 @@ function artworkView(value: AlbumArtworkResource | undefined): ArtworkView | und
 function manualSource(previous: FieldSource): FieldSource {
   return {kind: "manual", basedOn: structuredClone(previous.kind === "manual" ? previous.basedOn : previous)};
 }
+function lastfmAlbumUrl(source: FieldSource): string | undefined {
+  const original=source.kind==="manual"?source.basedOn:source;
+  if(original.kind==="complementary"&&original.service==="lastfm")return original.albumUrl;
+  if(original.kind==="streaming"&&original.service==="lastfm")return original.albumUrl;
+  if(original.kind==="merged")return original.sources.find(item=>item.service==="lastfm")?.albumUrl;
+  return undefined;
+}
+function retainLastfmAttribution(value: string, albumUrl: string, required: boolean): string {
+  if(!required)return value;
+  const suffix=`\n\nFonte: Last.fm\n${albumUrl}\nTermos da API Last.fm: https://www.last.fm/api/tos`;
+  return value.includes("https://www.last.fm/api/tos")?value:value.trimEnd()+suffix;
+}
 function readAlbum(value: AlbumSource): AlbumSource {
   if (!value || !isMetadataService(value.service) || !isMetadataAlbumId(value.service, value.id)) throw new TypeError("Selecione um álbum de um streaming disponível.");
   try {
     const url = new URL(value.url);
-    const valid = value.service === "deezer" ? isDeezerAlbumUrl(value.url, value.id) : value.service === "apple-music" ? isItunesAlbumUrl(value.url, value.id) : value.service === "spotify" ? url.origin === "https://open.spotify.com" && new RegExp(`^/(?:intl-[a-z]{2}/)?album/${value.id}/?$`).test(url.pathname) :
+    const valid = value.service === "lastfm" ? Boolean(lastfmDescription(value as AlbumCandidate)) : value.service === "deezer" ? isDeezerAlbumUrl(value.url, value.id) : value.service === "apple-music" ? isItunesAlbumUrl(value.url, value.id) : value.service === "spotify" ? url.origin === "https://open.spotify.com" && new RegExp(`^/(?:intl-[a-z]{2}/)?album/${value.id}/?$`).test(url.pathname) :
       url.origin === "https://music.youtube.com" && url.pathname === `/browse/${value.id}`;
     if (!valid || url.username || url.password || url.port) throw new Error();
   } catch {throw new TypeError("O endereço não corresponde ao álbum escolhido.");}
@@ -131,7 +145,7 @@ export class AlbumComposition {
     const names = card.album.artists?.map(artist => artist.name);
     const artists = fields.includes("artists") && names?.length && names.every(name => name.trim()) ? names : undefined;
     const artwork = fields.includes("artwork") ? card.artwork?.retain() : undefined;
-    const description = fields.includes("description") && card.description ? descriptionText(card.description.text) : undefined;
+    const description = fields.includes("description") && card.description ? card.album.service === "lastfm" ? card.description.text : descriptionText(card.description.text) : undefined;
     const source = this.source(card);
     if (description !== undefined) this.description = {value: description, source, included: true};
     if (title !== undefined) this.title = {value: title, source, included: true};
@@ -145,6 +159,18 @@ export class AlbumComposition {
   }
   copyAll(service = this.selected): boolean {
     const copied = this.copy(this.card(service), ["title", "artists", "artwork", "description"]); if (copied) this.changed(); return copied;
+  }
+  copyLastfm(source: LastfmSource, fields: readonly CompositionField[], descriptionOverride?: string): boolean {
+    this.active();const data=source.snapshot();
+    if(!fields.length||fields.some(field=>!["title","artists","description","artwork"].includes(field)))throw new TypeError("Campo inválido.");
+    const description=fields.includes("description")?descriptionText(retainLastfmAttribution(descriptionOverride ?? source.description(),data.url,Boolean(data.about||data.summary))):undefined;
+    const resource=fields.includes("artwork")?source.artworkResource()?.retain():undefined;
+    const origin:OriginalFieldSource={kind:"complementary",service:"lastfm",albumId:source.id,albumUrl:data.url,albumTitle:data.title};
+    if(fields.includes("title"))this.title={value:data.title,source:origin,included:true};
+    if(fields.includes("artists"))this.artists={value:[data.artist],source:origin,included:true};
+    if(description!==undefined)this.description={value:description,source:descriptionOverride !== undefined && descriptionOverride !== source.description() ? {kind:"manual",basedOn:origin} : origin,included:true};
+    if(resource){const previous=this.artwork.value;this.artwork={value:resource,source:origin,included:true};previous?.release();}
+    const copied=fields.some(field=>field!=="artwork")||Boolean(resource);if(copied)this.changed();return copied;
   }
   initializeDescription(value: string): void {
     this.active();if (typeof value !== "string") return;
@@ -166,7 +192,9 @@ export class AlbumComposition {
   }
   editDescription(value: string): void {
     this.active();if (typeof value !== "string") throw new TypeError("Descrição inválida.");
-    this.description = {value, source: manualSource(this.description.source), included: true};this.changed();
+    const source=this.description.source,albumUrl=lastfmAlbumUrl(source),hadAttribution=this.description.value.includes("https://www.last.fm/api/tos");
+    const next=albumUrl?retainLastfmAttribution(value,albumUrl,hadAttribution):value;
+    this.description = {value:next, source: manualSource(source), included: true};this.changed();
   }
   useMergedDescription(value: string, sources: readonly {readonly service: MetadataServiceId; readonly albumId: string}[]): void {
     this.active();const text = descriptionText(value);
@@ -189,6 +217,11 @@ export class AlbumComposition {
   editArtwork(value: AlbumArtworkResource): void {
     this.active(); const resource = value.retain(), previous = this.artwork.value;
     const {service, albumId} = resource.metadata;
+    if(service === "lastfm") {
+      const url=new URL(albumId);url.hash="";
+      this.artwork={value:resource,source:{kind:"manual",basedOn:{kind:"complementary",service,albumId,albumUrl:url.href,albumTitle:"Last.fm"}},included:true};
+      previous?.release();this.changed();return;
+    }
     this.artwork = {value: resource, source: {kind: "manual", basedOn: {kind: "streaming", service, albumId,
       albumUrl: this.cards.get(service)?.album.id === albumId ? this.cards.get(service)!.album.url : service === "deezer" ? `https://www.deezer.com/album/${albumId}` : service === "apple-music" ? `https://music.apple.com/br/album/${albumId}` : service === "spotify" ? `https://open.spotify.com/album/${albumId}` : `https://music.youtube.com/browse/${albumId}`}}, included: true};
     previous?.release(); this.changed();

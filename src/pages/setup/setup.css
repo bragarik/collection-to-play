@@ -83,3 +83,7 @@
 .support-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .support-actions a.btn { display: inline-flex; margin-bottom: 0; color: var(--color-primary-content); text-decoration: none; }
 :root { --color-primary: #007b92; }
+
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+.settings-actions + label { margin-top: 12px; }

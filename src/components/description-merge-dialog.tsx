@@ -55,6 +55,7 @@ export function DescriptionMergeDialog({cards, maxLength, onUse, onCancel}: {
       <textarea class="textarea w-full" id="merge-result" rows={13} maxLength={limit} value={text} aria-describedby="merge-help merge-validation" onInput={event => {model.edit(event.currentTarget.value);changed();}} placeholder="Escolha dados à esquerda ou escreva sua descrição."/>
       <p id="merge-help" class="note">Escolher outro serviço para o mesmo dado substitui a escolha anterior. A lista de faixas é escolhida inteira. Edições manuais são preservadas.</p>
       <label class="merge-sources-option"><input class="checkbox checkbox-primary checkbox-sm" id="merge-include-sources" type="checkbox" checked={includeSources} onChange={event => {model.setIncludeSources(event.currentTarget.checked);changed();}}/>{singleSource ? "Incluir fonte (serviço e link)" : "Incluir fontes (serviço, atributos e links)"}</label>
+      {model.cards.some(card=>card.description?.attribution)&&<p class="note">A atribuição do texto aproveitado é mantida mesmo com fontes opcionais desmarcadas.</p>}
       <p class="note">Dados alterados manualmente deixam de ser atribuídos ao serviço. Nenhuma alteração é salva ao combinar.</p>
       <p id="merge-validation" role="status" class="note">{error || validation || `${(result?.text.length ?? text.length).toLocaleString("pt-BR")} / ${limit.toLocaleString("pt-BR")} caracteres`}</p>
       <button class="btn btn-primary" id="use-merged-description" type="button" disabled={!result} onClick={() => {

@@ -1,3 +1,4 @@
+import {lastfmDescription} from "./lastfm-source.js";
 import type {DescriptionField} from "./description-completeness.js";
 import type {AlbumCandidate, MetadataServiceId} from "../shared/contracts.js";
 import {streamingName} from "../shared/contracts.js";
@@ -6,11 +7,12 @@ import {StreamingError} from "./resolution.js";
 import {normalizeProductCode} from "./identifiers.js";
 
 export const DESCRIPTION_LIMIT = 5_000;
-export type DescriptionSectionField = "title" | "artists" | "releaseType" | "releaseDate" | "label" | "genres" | "trackCount" | "duration" | "upc" | "ean" | "copyrights" | "tracks" | "description";
+export type DescriptionSectionField = "title" | "artists" | "releaseType" | "releaseDate" | "label" | "genres" | "trackCount" | "duration" | "upc" | "ean" | "copyrights" | "tracks" | "description" | "tags" | "mbid" | "about";
 export interface DescriptionSection {readonly field: DescriptionSectionField; readonly label: string; readonly text: string}
 export interface DescriptionTrack {readonly title: string; readonly number?: number; readonly disc?: number; readonly durationMs?: number}
 export interface AlbumDescriptionData {
   readonly album: AlbumCandidate;
+  readonly about?: string;
   readonly label?: string;
   readonly genres?: readonly string[];
   readonly tracks?: readonly DescriptionTrack[];
@@ -31,6 +33,7 @@ export interface AlbumDescription {
   readonly notes: readonly string[];
   readonly fields?: readonly DescriptionField[];
   readonly sections?: readonly DescriptionSection[];
+  readonly attribution?: {readonly fields: readonly DescriptionSectionField[];readonly text: string};
 }
 export interface DescriptionReplacement {readonly confirmed: boolean; readonly expected: string}
 function normalizedLines(value: string): string {return value.replace(/\r\n?/g, "\n");}
@@ -83,6 +86,7 @@ function date(value: unknown): string | undefined {
 }
 export function validateDescriptionAlbum(value: unknown): AlbumCandidate {
   const album = object(value), service = album["service"], id = album["id"], artists = album["artists"];
+  if(service === "lastfm") {try {lastfmDescription(value as AlbumCandidate);return structuredClone(value) as AlbumCandidate;}catch{invalid();}}
   if (!isMetadataService(service) || !isMetadataAlbumId(service, id) || !text(album["title"]) || !Array.isArray(artists) || !artists.length || artists.length > 100 ||
     !artists.every(raw => typeof object(raw)["id"] === "string" && Boolean((object(raw)["id"] as string).trim()) && text(object(raw)["name"])) || typeof album["url"] !== "string") invalid();
   try {
@@ -157,9 +161,10 @@ export function spotifyDescription(source: AlbumCandidate, value: unknown): Albu
     ...(count !== undefined ? {trackCount: count} : {}), tracksComplete: tracks.length <= 200 && !page["next"] && (count === undefined || count <= tracks.length)};
 }
 /** These sources already provide all fields used by their current description. */
-export function descriptionUsesDetails(service: string): boolean {return service !== "youtube-music";}
+export function descriptionUsesDetails(service: string): boolean {return service !== "youtube-music" && service !== "lastfm";}
 export function descriptionFromSearch(value: unknown): AlbumDescription | undefined {
   const album = object(value);
+  if(album["service"] === "lastfm")return lastfmDescription(value as AlbumCandidate);
   if (descriptionUsesDetails(String(album["service"]))) return undefined;
   const artists = album["artists"];
   if (!text(album["title"]) || !Array.isArray(artists) || !artists.length || !artists.every(artist => text(object(artist)["name"]))) return undefined;
@@ -186,6 +191,7 @@ export function formatAlbumDescription(data: AlbumDescriptionData): AlbumDescrip
   if (data.copyrights?.length) add("copyrights", "Direitos autorais", [...new Set(data.copyrights)].join("; "));
   const notes = [...data.notes ?? []], tracks = [...data.tracks ?? []].sort((a,b)=>(a.disc ?? 0)-(b.disc ?? 0)||(a.number ?? 0)-(b.number ?? 0));
   const footer = `Fonte: ${streamingName(album.service)}\n${album.url}`;
+  if(data.about?.trim()) {const text=`Sobre o álbum:\n${data.about.trim()}`;lines.push("",text);sections.push({field:"about",label:"Sobre o álbum",text});}
   const trackStart = lines.length;
   let listedTracks = 0;
   if (tracks.length) {

@@ -1,6 +1,7 @@
+import {isLastfmSourceId} from "../streamings/lastfm.js";
 import {isMetadataService, isMetadataAlbumId} from "../streamings/metadata-search.js";
 import {browserErrorDetails, type BrowserErrorDetails} from "../streamings/request-diagnostics.js";
-import type {AlbumArtworkVariant, AlbumCandidate, MetadataServiceId} from "../shared/contracts.js";
+import type {AlbumArtworkVariant, MetadataServiceId, StreamingId} from "../shared/contracts.js";
 
 export const ARTWORK_BYTE_LIMIT = 20_000_000;
 const mimeTypes = {jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp"} as const;
@@ -46,13 +47,16 @@ export function isAlbumArtworkUrl(service: unknown, value: unknown): value is st
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash || url.pathname === "/") return false;
-    return service === "spotify" ? url.hostname === "i.scdn.co" && /^\/image\/[\w-]+$/.test(url.pathname) :
+    return service === "lastfm" ? ["lastfm.freetls.fastly.net", "lastfm-img2.akamaized.net"].includes(url.hostname) && url.pathname.startsWith("/i/u/") :
+      service === "spotify" ? url.hostname === "i.scdn.co" && /^\/image\/[\w-]+$/.test(url.pathname) :
       service === "deezer" ? url.hostname === "cdn-images.dzcdn.net" && url.pathname.startsWith("/images/cover/") :
       service === "apple-music" ? url.hostname.endsWith(".mzstatic.com") && url.pathname.startsWith("/image/") :
       service === "youtube-music" && ["lh3.googleusercontent.com", "yt3.googleusercontent.com", "i.ytimg.com"].includes(url.hostname);
   } catch {return false;}
 }
-export function albumArtworkVariants(service: MetadataServiceId, value: unknown): readonly AlbumArtworkVariant[] {
+export type ArtworkServiceId = MetadataServiceId | "lastfm";
+export interface ArtworkInput {readonly service: StreamingId | "lastfm";readonly id: string;readonly artworkUrl?: string;readonly artworkVariants?: readonly AlbumArtworkVariant[]}
+export function albumArtworkVariants(service: ArtworkServiceId, value: unknown): readonly AlbumArtworkVariant[] {
   if (!Array.isArray(value)) return [];
   const variants = new Map<string, AlbumArtworkVariant>();
   for (const raw of value) {
@@ -72,7 +76,7 @@ function originalYouTubeUrl(value: string): string | undefined {
   url.pathname = path; return url.href;
 }
 export interface AlbumArtworkFile {
-  readonly service: MetadataServiceId;
+  readonly service: ArtworkServiceId;
   readonly albumId: string;
   readonly sourceUrl: string;
   readonly format: ImageFormat;
@@ -123,8 +127,8 @@ export async function fetchAlbumArtwork(value: unknown, environment: {
   readonly signal?: AbortSignal;
   readonly onDiagnostic?: (event: ArtworkDiagnosticEvent) => void;
 } = {}): Promise<AlbumArtworkFile> {
-  const album = object(value), service = album["service"], id = album["id"];
-  if (!isMetadataService(service) || !isMetadataAlbumId(service, id)) throw new ArtworkError("invalid-input");
+  const album = object(value), service = album["service"] as ArtworkServiceId, id = album["id"] as string;
+  if (service === "lastfm" ? !isLastfmSourceId(id) : !isMetadataService(service) || !isMetadataAlbumId(service, id)) throw new ArtworkError("invalid-input");
   const variants = albumArtworkVariants(service, album["artworkVariants"]);
   const urls = new Set(variants.map(variant => variant.url));
   if (isAlbumArtworkUrl(service, album["artworkUrl"])) urls.add(album["artworkUrl"]);
@@ -193,7 +197,7 @@ export class AlbumArtworkResource {
   constructor(readonly metadata: Omit<AlbumArtworkFile, "dataBase64">, bytes: Uint8Array,
     private readonly urls: Pick<typeof URL, "createObjectURL" | "revokeObjectURL"> = URL) {
     this.metadata = Object.freeze({...metadata, warnings: Object.freeze([...metadata.warnings])});
-    this.file = new File([new Uint8Array(bytes)], `${metadata.service}-${metadata.albumId}.${metadata.format === "jpeg" ? "jpg" : metadata.format}`, {type: metadata.mimeType});
+    this.file = new File([new Uint8Array(bytes)], `${metadata.service}-${metadata.service === "lastfm" ? "album" : metadata.albumId}.${metadata.format === "jpeg" ? "jpg" : metadata.format}`, {type: metadata.mimeType});
     this.previewUrl = urls.createObjectURL(this.file);
   }
   retain(): this {
@@ -204,7 +208,7 @@ export class AlbumArtworkResource {
     if (this.references && --this.references === 0) this.urls.revokeObjectURL(this.previewUrl);
   }
 }
-export async function loadAlbumArtworkResource(album: AlbumCandidate, request: (album: AlbumCandidate) => Promise<AlbumArtworkFile>, options: {
+export async function loadAlbumArtworkResource<T extends ArtworkInput>(album: T, request: (album: T) => Promise<AlbumArtworkFile>, options: {
   readonly signal?: AbortSignal;
   readonly urls?: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
 } = {}): Promise<AlbumArtworkResource> {

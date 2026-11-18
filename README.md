@@ -8,7 +8,7 @@ Licença: GNU GPL versão 3; texto completo em [LICENSE](LICENSE) e autoria em [
 
 ## Estado atual
 
-Versão local: **0.3.0**.
+Versão local: **0.4.0**.
 
 Integrações implementadas: Libib + Spotify, YouTube Music, iTunes e Deezer.
 Catálogo suportado: https://www.libib.com/library e seus subcaminhos.
@@ -309,7 +309,7 @@ Cada pessoa configura seu próprio aplicativo Spotify, mantido em **Development 
 no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 
 1. Crie seu aplicativo no dashboard. O proprietário precisa de Spotify Premium.
-2. No ícone da extensão, abra **Aplicativo Spotify** e copie o **Redirect URI**.
+2. No ícone da extensão, abra **Credencial Spotify** e copie o **Redirect URI**.
 3. Cadastre esse endereço exatamente em **Settings → Redirect URIs** no dashboard.
 4. Confira a lista de usuários autorizados em **Users Management**.
 5. Copie o **Client ID** do aplicativo, cole no campo da extensão e clique em **Salvar Client ID**.
@@ -322,7 +322,8 @@ informativos e continuam somente para leitura.
 
 A versão atual não inclui Client ID padrão. Se você já usava a versão com ID fixo,
 salve o Client ID do seu cadastro e conecte novamente. Ao trocar de Client ID, a
-sessão anterior é encerrada; salvar o mesmo ID preserva a conexão. Preferência de
+sessão anterior é encerrada; salvar o mesmo ID preserva a conexão. **Remover Client ID**
+apaga a credencial local e encerra a sessão Spotify deste navegador. Preferência de
 streaming e escolhas salvas são mantidas. Uso sujeito aos
 [limites do Spotify](https://developer.spotify.com/documentation/web-api/concepts/quota-modes).
 
@@ -522,3 +523,47 @@ não guarda valores dos campos, IDs dos itens ou endereços da biblioteca.
 
 Veja [CONTRIBUTING.md](CONTRIBUTING.md) para a organização do código, testes e orientações para
 acrescentar outros catálogos ou streamings.
+
+
+## Last.fm nos serviços de composição
+
+Em **Credencial Last.fm** nas configurações, salve sua própria API key, substitua-a
+ou remova-a. Ela fica localmente neste navegador, sem Shared Secret ou login Last.fm.
+
+Na tela **Compor dados do álbum**, a seleção **Serviços** inclui Spotify,
+YouTube Music, iTunes, Deezer e Last.fm. Escolha Last.fm, informe Álbum e Artista,
+selecione Português ou Inglês e use **Buscar álbuns**. O clique no serviço já inicia
+a busca se ele ainda não tiver um álbum adicionado. O idioma retornado pode ser
+diferente do solicitado; não há troca automática de idioma.
+
+Adicione o resultado aos mesmos cards dos outros serviços: até um álbum por
+serviço, totalizando cinco. Use os botões **+** para copiar título, artista, capa
+ou descrição. A descrição Last.fm já fica disponível a partir da busca, incluindo
+história quando fornecida; não precisa gerar novamente. Texto acima do limite
+é mantido para revisão no formulário e precisa ser reduzido antes de aplicar.
+Nada é salvo automaticamente no Libib.
+
+**Sobre o álbum** é um atributo opcional comum: aparece no merge quando uma fonte
+o fornece, antes das faixas. Hoje o Last.fm preenche esse texto; outras integrações
+podem fornecer o mesmo atributo futuramente. Tags e MusicBrainz também são blocos
+separados quando disponíveis; tags não são convertidas automaticamente em gêneros.
+O merge permite trocar a fonte de cada bloco. Ao aproveitar Sobre o álbum do Last.fm,
+a origem, o link do álbum e os Termos da API Last.fm acompanham o texto, mesmo se as
+fontes opcionais forem desmarcadas ou o texto for editado. A atribuição deixa de ser
+associada quando o bloco é removido ou substituído por outro serviço. Revise a descrição
+final antes de aplicar.
+
+O uso da API Last.fm nesta extensão destina-se a uso pessoal não comercial, conforme
+informado pelo mantenedor. Os termos atuais exigem uso não comercial, crédito e link
+para o catálogo Last.fm, proíbem sublicenciamento e limitam os dados armazenados a
+100 MB no total; também exigem respeitar os cabeçalhos HTTP de cache. A extensão não
+mantém cache próprio das respostas Last.fm e usa o cache HTTP padrão do navegador.
+Os termos mencionam aprovação escrita para páginas com acesso público que usem a API;
+confirme essa exigência com Last.fm antes de distribuir uma versão com acesso público.
+Consulte os [Termos da API Last.fm](https://www.last.fm/api/tos) antes de usar a API.
+
+Last.fm é um serviço de consulta, sem reprodução; não aparece na preferência para
+ouvir e não muda o streaming escolhido nas configurações. Remover um card mantém
+os dados já copiados no formulário. A credencial é pessoal e fica no armazenamento
+local do navegador; diagnósticos não guardam a chave, URL da requisição ou texto
+retornado pela API.

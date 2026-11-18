@@ -18,6 +18,7 @@ function choiceTitle(choice: RememberedChoice): string {
   return choice.album?.title ?? "Álbum da coleção";
 }
 function Setup() {
+  const [lastfmKey, setLastfmKey] = useState(""), [lastfmConfigured, setLastfmConfigured] = useState(false), [lastfmFeedback, setLastfmFeedback] = useState("");
   const [clientId, setClientId] = useState(""), [clientFeedback, setClientFeedback] = useState("");
   const [info, setInfo] = useState<SetupInfo>(), [preferences, setPreferences] = useState<Preferences>({choices: []});
   const [selectedService, setSelectedService] = useState(""), [streamingOpen, setStreamingOpen] = useState(true);
@@ -42,8 +43,9 @@ function Setup() {
   }
   async function loadSetup(): Promise<void> {
     const value = await request<SetupInfo>({type: "setup:get"});
+    const lastfm = await request<{configured: boolean}>({type: "lastfm:status"});
     if (!alive.current) return;
-    setInfo(value);setClientId(value.spotify.clientId); setConnectionError(""); await loadPreferences(false, value.spotify.connected);
+    setLastfmConfigured(lastfm.configured);setInfo(value);setClientId(""); setConnectionError(""); await loadPreferences(false, value.spotify.connected);
     if (alive.current) {setDiagnosticRevision(x => x + 1); document.body.dataset["ready"] = "true";}
   }
   async function run(name: string, action: () => Promise<void>): Promise<void> {
@@ -67,14 +69,23 @@ function Setup() {
       } catch (error) {setPreferenceFeedback(errorMessage(error));}
     });
   }
-  async function saveSpotifyApplication(): Promise<void> {
+  async function configureLastfm(remove = false): Promise<void> {
+    await run("lastfm-configuration", async () => {
+      try {
+        const result = await request<{configured: boolean}>(remove ? {type: "lastfm:clear"} : {type: "lastfm:configure", apiKey: lastfmKey});
+        setLastfmConfigured(result.configured);setLastfmKey("");
+        setLastfmFeedback(remove ? "API key removida deste navegador." : "API key salva neste navegador. Consulte o Last.fm na tela Compor dados do álbum do Libib.");
+      } catch {setLastfmFeedback("Não foi possível salvar ou remover a chave. Confira os dados e tente novamente.");}
+    });
+  }
+  async function saveSpotifyApplication(remove = false): Promise<void> {
     await run("spotify-application", async () => {
       try {
-        const changed = clientId.trim().toLowerCase() !== info?.spotify.clientId;
-        await request({type: "spotify:configure", clientId});
+        const changed = remove || clientId.trim().toLowerCase() !== info?.spotify.clientId;
+        await request(remove ? {type: "spotify:clear-configuration"} : {type: "spotify:configure", clientId});
         if (changed) clearSearch();
         await loadSetup();
-        setClientFeedback(changed ? "Client ID salvo. Conecte sua conta Spotify novamente." : "Client ID já salvo.");
+        setClientFeedback(remove ? "Client ID removido e conta desconectada deste navegador." : changed ? "Client ID salvo. Conecte sua conta Spotify novamente." : "Client ID já salvo.");
       } catch (error) {setClientFeedback(errorMessage(error));}
     });
   }
@@ -140,7 +151,7 @@ function Setup() {
         <div class="section-content"><p id="first-use" class="note" hidden={Boolean(preferences.service)}>Escolha o serviço que deseja usar. Nenhum streaming foi selecionado automaticamente.</p>
           <form id="streaming-settings" onSubmit={event => {event.preventDefault(); void savePreference();}}><label for="preferred-streaming">Streaming</label><select id="preferred-streaming" class="select w-full" required value={selectedService} disabled={busy || !info} onChange={event => setSelectedService(event.currentTarget.value)}><option value="">Escolha um streaming</option>{STREAMINGS.map(service => <option key={service.id} value={service.id} disabled={!service.available}>{service.available ? service.name : `${service.name} — em implementação`}</option>)}</select><button id="save-streaming" class="btn btn-primary" type="submit" disabled={busy || !info}><ActionIcon name="save"/>Salvar preferência</button></form>
           <Feedback id="preference-feedback">{preferenceFeedback}</Feedback>
-          <section id="spotify-connection" hidden={publicSearch}><h2 id="spotify-heading"><StreamingIcon/>Conectar sua conta</h2><p id="connection-status" role="status">{connectionError || (!info ? "Verificando conexão…" : connected ? "Conectado ao Spotify" : !info.spotify.clientId ? "Salve seu Client ID na seção Aplicativo Spotify abaixo." : "Spotify não conectado")}</p><p class="note">O login é feito na janela oficial do Spotify. Sua senha fica com o Spotify.</p><button id="connect-spotify" class="btn btn-primary" type="button" hidden={connected} disabled={busy || !info?.spotify.clientId || connected} onClick={() => void connection(false)}>Conectar Spotify</button><button id="disconnect-spotify" class="btn btn-soft" type="button" hidden={!connected} disabled={busy || !connected} onClick={() => void connection(true)}>Desconectar Spotify</button><Feedback id="feedback">{initialError || feedback}</Feedback></section>
+          <section id="spotify-connection" hidden={publicSearch}><h2 id="spotify-heading"><StreamingIcon/>Conectar sua conta</h2><p id="connection-status" role="status">{connectionError || (!info ? "Verificando conexão…" : connected ? "Conectado ao Spotify" : !info.spotify.clientId ? "Salve seu Client ID na seção Credencial Spotify abaixo." : "Spotify não conectado")}</p><p class="note">O login é feito na janela oficial do Spotify. Sua senha fica com o Spotify.</p><button id="connect-spotify" class="btn btn-primary" type="button" hidden={connected} disabled={busy || !info?.spotify.clientId || connected} onClick={() => void connection(false)}>Conectar Spotify</button><button id="disconnect-spotify" class="btn btn-soft" type="button" hidden={!connected} disabled={busy || !connected} onClick={() => void connection(true)}>Desconectar Spotify</button><Feedback id="feedback">{initialError || feedback}</Feedback></section>
           <p id="youtube-connection" class="note streaming-info" hidden={!youtube}><StreamingIcon service="youtube-music"/><span>YouTube Music: a busca de álbuns dispensa login. Os álbuns abrem pelo navegador.</span></p>
           <p id="deezer-connection" class="note streaming-info" hidden={!deezer}><StreamingIcon service="deezer"/><span>Deezer: busca pública por título e artista, sem login. O álbum abre no navegador.</span></p>
           <p id="itunes-connection" class="note streaming-info" hidden={!itunes}><StreamingIcon service="apple-music"/><span>iTunes: busca no catálogo brasileiro, sem login. Os links retornados pela Apple abrem no navegador; a disponibilidade para streaming pode variar.</span></p>
@@ -158,16 +169,25 @@ function Setup() {
         <form id="album-search" onSubmit={event => {event.preventDefault(); void search();}}><label for="album-title">Álbum</label><input id="album-title" class="input w-full" placeholder="Ex.: Discovery" required maxLength={200} autoComplete="off" disabled={busy} value={title} onInput={event => editSearch("title", event.currentTarget.value)}/><label for="album-artist">Artista (opcional)</label><input id="album-artist" class="input w-full" placeholder="Ex.: Daft Punk" maxLength={200} autoComplete="off" disabled={busy} value={artist} onInput={event => editSearch("artist", event.currentTarget.value)}/><label for="album-code">UPC/EAN (opcional)</label><input id="album-code" class="input w-full" placeholder="Código de barras com 12 ou 13 dígitos" maxLength={24} inputMode="numeric" autoComplete="off" aria-describedby="code-help" disabled={busy || publicSearch} value={code} onInput={event => editSearch("code", event.currentTarget.value)}/><p id="code-help" class="note">{publicSearch ? `${serviceName} pesquisa por título e artista; UPC/EAN não são usados nesta integração.` : "Se disponível no Libib, o código será tentado antes do título e artista. Preserve os zeros à esquerda."}</p><button id="search-albums" class="btn btn-primary" type="submit" disabled={busy || !available}><ActionIcon name="search"/>Buscar no {serviceName}</button></form>
         <Feedback id="search-feedback">{searchFeedback}</Feedback><ul id="results">{albums.map(album => <li key={album.id}><a class="spotify-web-link" href={album.url} target="_blank" rel="noopener noreferrer">{album.title} — {album.artists.map(a => a.name).join(", ")}<span> · {album.service === "spotify" ? "Web Player" : streamingName(album.service)}</span></a>{album.service === "spotify" && <><br/><a class="spotify-app-link" href={`spotify:album:${album.id}`}>Abrir no aplicativo Spotify</a></>}</li>)}{fallback && <li><a href={fallback} target="_blank" rel="noopener noreferrer">Buscar no {serviceName}</a></li>}</ul><button id="load-more" class="btn btn-soft" type="button" hidden={!nextPage} disabled={busy || !available} onClick={() => void search(true)}>Carregar mais resultados</button><button id="export-search-log" class="btn btn-soft" type="button" disabled={busy} onClick={() => void exportSearch()}><ActionIcon name="download"/>Exportar log da busca</button><Feedback id="export-feedback">{exportFeedback}</Feedback><p class="note">Esta busca é para diagnóstico. Para escolher e lembrar um álbum da coleção, use o botão no próprio Libib.</p>
       </div></details>
-      <details id="technical-settings" class="settings-section card card-border" open={Boolean(info && !info.spotify.clientId)}><summary><span class="section-title">Aplicativo Spotify</span></summary><div class="section-content">
+      <details id="technical-settings" class="settings-section card card-border" open={Boolean(info && !info.spotify.clientId)}><summary><span class="section-title">Credencial Spotify</span><span id="spotify-credential-status" class="section-badge badge badge-soft">{!info ? "Verificando…" : info.spotify.clientId ? "Client ID configurado" : "Sem Client ID"}</span></summary><div class="section-content">
         <p class="note">Crie seu próprio aplicativo no Spotify Developer Dashboard e mantenha-o em modo de desenvolvimento. O proprietário precisa de Spotify Premium; confira a lista de usuários autorizados no cadastro.</p>
         <p class="note">Em Settings → Redirect URIs, cadastre exatamente o endereço abaixo. Salve o Client ID aqui e depois clique em Conectar Spotify. A configuração fica somente neste navegador. Trocar o Client ID encerra a sessão anterior.</p>
         <form id="spotify-application-settings" onSubmit={event => {event.preventDefault();void saveSpotifyApplication();}}>
-          <label for="client-id">Client ID do seu aplicativo Spotify</label><input id="client-id" class="input w-full" required pattern="[a-fA-F0-9]{32}" maxLength={32} autoComplete="off" spellcheck={false} disabled={busy || !info} value={clientId} onInput={event => {setClientId(event.currentTarget.value.trim());setClientFeedback("");}}/>
-          <button id="save-spotify-application" class="btn btn-primary" type="submit" disabled={busy || !info}><ActionIcon name="save"/>Salvar Client ID</button>
+          <label for="client-id">Client ID do seu aplicativo Spotify</label><input id="client-id" class="input w-full" type="password" placeholder={info?.spotify.clientId ? "Digite outro Client ID para substituir" : "Cole seu Client ID"} required pattern="[a-fA-F0-9]{32}" maxLength={32} autoComplete="off" spellcheck={false} disabled={busy || !info} value={clientId} onInput={event => {setClientId(event.currentTarget.value.trim());setClientFeedback("");}}/>
+          <div class="settings-actions"><button id="save-spotify-application" class="btn btn-primary" type="submit" disabled={busy || !info || !clientId}><ActionIcon name="save"/>Salvar Client ID</button><button id="remove-spotify-application" class="btn btn-soft" type="button" disabled={busy || !info?.spotify.clientId} onClick={() => void saveSpotifyApplication(true)}><ActionIcon name="trash"/>Remover Client ID</button></div>
           <Feedback id="spotify-application-feedback">{clientFeedback}</Feedback>
         </form>
         <p class="note">A conexão usa PKCE. Client Secret não é necessário.</p>
-        <label for="redirect-url">Redirect URI</label><textarea id="redirect-url" class="textarea w-full" ref={redirect} readOnly spellcheck={false} rows={3} value={info?.spotify.redirectUrl ?? ""}/><button id="copy-redirect" class="btn btn-soft" type="button" disabled={!info} onClick={() => {void navigator.clipboard.writeText(info?.spotify.redirectUrl ?? "").then(() => setFeedback("Endereço copiado."), () => {redirect.current?.focus(); redirect.current?.select(); setFeedback("Selecione e copie o endereço com Ctrl+C ou ⌘C.");});}}>Copiar endereço de retorno</button><label for="extension-id">ID da extensão</label><input id="extension-id" class="input w-full" readOnly spellcheck={false} value={info?.extensionId ?? ""}/><p class="note"><a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer">Abrir Spotify Developer Dashboard</a></p>
+        <label for="redirect-url">Redirect URI</label><textarea id="redirect-url" class="textarea w-full" ref={redirect} readOnly spellcheck={false} rows={3} value={info?.spotify.redirectUrl ?? ""}/><div class="settings-actions"><button id="copy-redirect" class="btn btn-soft" type="button" disabled={!info} onClick={() => {void navigator.clipboard.writeText(info?.spotify.redirectUrl ?? "").then(() => setFeedback("Endereço copiado."), () => {redirect.current?.focus(); redirect.current?.select(); setFeedback("Selecione e copie o endereço com Ctrl+C ou ⌘C.");});}}><ActionIcon name="copy"/>Copiar endereço de retorno</button></div><label for="extension-id">ID da extensão</label><input id="extension-id" class="input w-full" readOnly spellcheck={false} value={info?.extensionId ?? ""}/><p class="note"><a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer">Abrir Spotify Developer Dashboard</a></p>
+      </div></details>
+      <details id="lastfm-settings" class="settings-section card card-border"><summary><span class="section-title">Credencial Last.fm</span><span class="section-badge badge badge-soft">{lastfmConfigured ? "Chave configurada" : "Sem chave"}</span></summary><div class="section-content">
+        <p class="note">Configure sua própria API key para consultar dados e textos sobre os álbuns na tela Compor dados do álbum do Libib.</p>
+        <p class="note">A chave fica somente neste navegador. Shared Secret e login Last.fm não são necessários para consultar álbuns.</p>
+        <form id="lastfm-key-settings" onSubmit={event => {event.preventDefault();void configureLastfm();}}>
+          <label for="lastfm-api-key">API key Last.fm</label><input id="lastfm-api-key" class="input w-full" type="password" required pattern="[a-fA-F0-9]{32}" maxLength={32} autoComplete="off" spellcheck={false} disabled={busy || !info} value={lastfmKey} placeholder={lastfmConfigured ? "Digite outra chave para substituir" : "Cole sua API key"} onInput={event => {setLastfmKey(event.currentTarget.value.trim());setLastfmFeedback("");}}/>
+          <div class="settings-actions"><button id="save-lastfm-key" class="btn btn-primary" type="submit" disabled={busy || !info || !lastfmKey}><ActionIcon name="save"/>Salvar chave</button><button id="remove-lastfm-key" class="btn btn-soft" type="button" disabled={busy || !lastfmConfigured} onClick={() => void configureLastfm(true)}><ActionIcon name="trash"/>Remover chave</button></div>
+        </form><Feedback id="lastfm-key-feedback">{lastfmFeedback}</Feedback>
+        <p class="note"><a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">Criar API key no Last.fm</a></p>
       </div></details>
     </main><footer><ProjectSupport/><a id="open-library" href={info?.catalog.libraryUrl ?? "https://www.libib.com/library"} target="_blank" rel="noopener noreferrer">Abrir biblioteca no Libib</a></footer>
   </>;

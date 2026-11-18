@@ -16,7 +16,7 @@ const sourceUrl = params.get("source") ?? "", session = params.get("session") ??
 const full = params.get("editor") === "full", selective = params.get("selective") === "true";
 const initialTitle = (params.get("title") ?? "").slice(0, 512), initialArtist = (params.get("artist") ?? "").slice(0, 2000);
 const initialService = params.get("service");
-const names: Record<MetadataServiceId, string> = {spotify: "Spotify", "youtube-music": "YouTube Music", "apple-music": "iTunes", deezer: "Deezer"};
+const names: Record<MetadataServiceId, string> = {spotify: "Spotify", "youtube-music": "YouTube Music", "apple-music": "iTunes", deezer: "Deezer", lastfm: "Last.fm"};
 const labels = {title: "Título", artists: "Artistas", artwork: "Capa", description: "Descrição"};
 async function request<T>(message: AppRequest): Promise<T> {
   const reply: AppReply<T> | undefined = await chrome.runtime.sendMessage(message);
@@ -26,7 +26,7 @@ async function request<T>(message: AppRequest): Promise<T> {
 }
 function origin(source: FieldSource): string {
   const value = source.kind === "manual" ? source.basedOn : source;
-  const name = value.kind === "catalog" ? "Libib" : value.kind === "merged" ? `Descrição combinada${value.sources.length ? ` · ${value.sources.map(source => names[source.service]).join(", ")}` : ""}` : `${names[value.service]}${value.albumTitle ? ` · ${value.albumTitle}` : ""}`;
+  const name = value.kind === "catalog" ? "Libib" : value.kind === "complementary" ? `Last.fm · ${value.albumTitle}` : value.kind === "merged" ? `Descrição combinada${value.sources.length ? ` · ${value.sources.map(source => names[source.service]).join(", ")}` : ""}` : `${names[value.service]}${value.albumTitle ? ` · ${value.albumTitle}` : ""}`;
   return source.kind === "manual" ? `Edição manual · ${name}` : name;
 }
 function size(bytes: number): string {
@@ -63,6 +63,7 @@ function MetadataEditor() {
   const alive = useRef(true), applyingRef = useRef(false), revision = useRef(0), applyController = useRef(new AbortController());
   const [service, setService] = useState<MetadataServiceId>(isMetadataService(initialService) ? initialService : "spotify");
   const [title, setTitle] = useState(initialTitle.slice(0, 200)), [artist, setArtist] = useState(initialArtist.slice(0, 200));
+  const [lastfmLanguage,setLastfmLanguage] = useState<"pt"|"en">("pt");
   const [descriptionMaxLength, setDescriptionMaxLength] = useState(DESCRIPTION_LIMIT);
   const [descriptionAvailable, setDescriptionAvailable] = useState(false), [originalDescription, setOriginalDescription] = useState("");
   const [descriptionConfirmed, setDescriptionConfirmed] = useState(false);
@@ -82,7 +83,7 @@ function MetadataEditor() {
       const result = await request<AlbumDescription>({type: "metadata:description", album: {...album, title: album.title ?? "", artists: album.artists ?? []}, sourceUrl});
       if (signal.aborted) throw new Error("Geração cancelada.");return result;
     },
-    loadArtwork: (album, signal) => loadAlbumArtworkResource({...album, title: album.title ?? "", artists: album.artists ?? []},
+    loadArtwork: (album, signal) => loadAlbumArtworkResource<AlbumCandidate>({...album, title: album.title ?? "", artists: album.artists ?? []},
       value => request<AlbumArtworkFile>({type: "metadata:artwork", album: value, sourceUrl}), {signal}),
   }), []);
   const snapshot = model.snapshot(), selected = snapshot.cards.find(card => card.album.service === snapshot.selectedService);
@@ -103,15 +104,16 @@ function MetadataEditor() {
   const descriptionReady = !snapshot.fields.description.included || descriptionAvailable && descriptionConfirmed && Boolean(snapshot.fields.description.value.trim()) && snapshot.fields.description.value.length <= descriptionMaxLength;
   const canApply = !preparingMerge && descriptionReady && hasChanges && (selective || legacyAllowed) && window.parent !== window && Boolean(session);
   const connection = connections?.services.find(item => item.id === service);
-  const connectionNeeded = required || Boolean(connection?.requiresAuthentication && !connection.connected);
+  const connectionNeeded = service==="lastfm" ? Boolean(connection&&!connection.connected) : required || Boolean(connection?.requiresAuthentication && !connection.connected);
   const cached = searchSession.snapshot();
-  const query = {title: title.trim(), artist: artist.trim(), sourceUrl};
+  const query = {title: title.trim(), artist: artist.trim(), sourceUrl, language:lastfmLanguage};
   const more = Boolean(cached.nextPage && cached.query && metadataQueryKey(cached.query) === metadataQueryKey(query));
   async function refreshConnections(): Promise<void> {
     try {const value = await searchSession.refreshServices(); if (alive.current) {setConnections(value); setRequired(false);}}
     catch {if (alive.current) setStatus("Não foi possível verificar a conexão. Tente novamente.");}
   }
   async function search(append = false): Promise<void> {
+    if(searchSession.service === "lastfm" && !query.artist.trim()) {setStatus("Informe o artista para buscar no Last.fm.");return;}
     const generation = ++revision.current; setSearching(true); setStatus("Buscando álbuns…");
     try {
       const reply = await searchSession.search(query, append);
@@ -237,10 +239,10 @@ function MetadataEditor() {
     finally {applyingRef.current = false; if (alive.current) setApplying(false);}
   }
   return <>
-    <h1>Compor dados do álbum</h1><p class="intro">Escolha até um álbum por streaming e copie os campos que deseja usar.</p>
+    <h1>Compor dados do álbum</h1><p class="intro">Escolha até um álbum por serviço e copie os campos que deseja usar.</p>
     <div class="workspace"><section class="panel card card-border bg-base-100" aria-label="Buscar e escolher fontes">
       <form class="search-form" id="metadata-search" onSubmit={event => {event.preventDefault(); void search();}}>
-        <fieldset class="wide streaming-picker" id="streaming-service"><legend>Streaming</legend><div class="streaming-choices">
+        <fieldset class="wide streaming-picker" id="streaming-service"><legend>Serviços</legend><div class="streaming-choices">
           {METADATA_SERVICE_IDS.map(id => {
             const added = snapshot.cards.some(card => card.album.service === id);
             return <button key={id} id={`streaming-service-${id}`} type="button" class="btn streaming-choice" aria-pressed={service === id}
@@ -250,11 +252,12 @@ function MetadataEditor() {
             </button>;
           })}
         </div></fieldset>
+        {service==="lastfm"&&<div class="wide"><label for="lastfm-language">Idioma da busca Last.fm</label><select id="lastfm-language" class="select w-full" value={lastfmLanguage} disabled={busy} onChange={event=>{searchSession.invalidate();revision.current++;setSearching(false);setResults([]);setLastfmLanguage(event.currentTarget.value as "pt"|"en");setStatus("Idioma alterado. Busque novamente no Last.fm.");}}><option value="pt">Português</option><option value="en">Inglês</option></select><p class="note">O idioma retornado pode diferir do solicitado. Sem reprodução pelo Last.fm.</p></div>}
         <div><label for="search-title">Álbum</label><div class="search-input-group"><input class="input w-full" id="search-title" required maxLength={200} value={title} disabled={busy} onInput={event => editQuery(event.currentTarget.value, "title")}/><button class="btn btn-soft btn-square reset-search" type="button" aria-label="Restaurar álbum original" title="Restaurar álbum original" disabled={busy || title === initialTitle.slice(0, 200)} onClick={() => resetQuery("title")}><ResetSearchIcon/></button></div></div>
-        <div><label for="search-artist">Artista (opcional)</label><div class="search-input-group"><input class="input w-full" id="search-artist" maxLength={200} value={artist} disabled={busy} onInput={event => editQuery(event.currentTarget.value, "artist")}/><button class="btn btn-soft btn-square reset-search" type="button" aria-label="Restaurar artista original" title="Restaurar artista original" disabled={busy || artist === initialArtist.slice(0, 200)} onClick={() => resetQuery("artist")}><ResetSearchIcon/></button></div></div>
+        <div><label for="search-artist">{service === "lastfm" ? "Artista" : "Artista (opcional)"}</label><div class="search-input-group"><input class="input w-full" id="search-artist" required={service === "lastfm"} maxLength={200} value={artist} disabled={busy} onInput={event => editQuery(event.currentTarget.value, "artist")}/><button class="btn btn-soft btn-square reset-search" type="button" aria-label="Restaurar artista original" title="Restaurar artista original" disabled={busy || artist === initialArtist.slice(0, 200)} onClick={() => resetQuery("artist")}><ResetSearchIcon/></button></div></div>
         <div class="wide search-actions"><button type="submit" class="btn btn-primary" disabled={searching || busy}>{searching ? <span class="loading loading-spinner loading-xs" aria-hidden="true"/> : <ActionIcon name="search"/>}Buscar álbuns</button><span class="note">{names[service]}</span></div>
       </form>
-      {connectionNeeded && <div class="connection alert alert-warning alert-soft" id="connection-required"><p>Conecte sua conta {names[service]} para buscar. Os dados montados serão mantidos.</p><a href={connections?.configurationUrl ?? chrome.runtime.getURL("setup.html")} target="_blank" rel="noopener noreferrer">Abrir configurações</a><br/><button class="btn btn-sm" type="button" disabled={busy} onClick={() => void refreshConnections()}>Verificar conexão</button></div>}
+      {connectionNeeded && <div class="connection alert alert-warning alert-soft" id="connection-required"><p>{service==="lastfm"?"Configure sua API key Last.fm para buscar.":`Conecte sua conta ${names[service]} para buscar.`} Os dados montados serão mantidos.</p><a href={connections?.configurationUrl ?? chrome.runtime.getURL("setup.html")} target="_blank" rel="noopener noreferrer">Abrir configurações</a><br/><button class="btn btn-sm" type="button" disabled={busy} onClick={() => void refreshConnections()}>Verificar conexão</button></div>}
       <p class="status" id="search-status" role="status" aria-live="polite">{status}</p>
       {results.length > 0 && <><span class="results-title" id="search-results-title">Resultados no {names[service]}</span><ul class="results" id="search-results">{results.map(album => <li class="result card card-border" key={`${album.service}:${album.id}`}>
         <AlbumArtwork album={album}/>

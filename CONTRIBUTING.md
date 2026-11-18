@@ -69,7 +69,7 @@ no pacote e sem editar fontes para configurar um fork.
 
 1. Crie um aplicativo no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard),
    mantenha Development Mode e confira Premium do proprietário/usuários autorizados.
-2. Compile/carregue a extensão e abra **Aplicativo Spotify** nas configurações.
+2. Compile/carregue a extensão e abra **Credencial Spotify** nas configurações.
 3. Cadastre exatamente o Redirect URI exibido em Settings do dashboard.
 4. Cole o Client ID, clique em **Salvar Client ID** e conecte sua conta.
 
@@ -82,6 +82,8 @@ leitura. O modo de quota é gerenciado no dashboard.
 `src/entrypoints/background.ts` guarda `spotify.clientId` em armazenamento local
 restrito aos contextos confiáveis. Trocas encerram a sessão anterior e impedem que
 uma autorização/renovação antiga restaure tokens; salvar o mesmo ID não desconecta.
+Remover Client ID limpa a configuração local e desconecta, preservando preferências
+e escolhas da coleção.
 Uma instalação sem configuração ignora sessões legadas e pede o Client ID antes
 de conectar. Nenhuma migração automática para o antigo cadastro compartilhado.
 Preferências e escolhas da coleção são preservadas. Contrato `spotify:configure`
@@ -865,3 +867,51 @@ a propriedade do controle. O contexto transmite esse limite ao formulário e ao
 modal de combinação. O contador inclui fontes; excessos impedem aplicação, sem
 truncar o rascunho ou a descrição original. A validação comum também protege geração,
 patch e ponte nativa. Antes de escrever, os fluxos verificam novamente o campo nativo.
+
+
+A configuração inicial Last.fm usa `src/shared/lastfm-settings.ts` e armazenamento
+local `lastfm.apiKey` restrito a contextos confiáveis. Mensagens de status retornam
+somente um booleano; gravação/remoção são aceitas nas páginas da extensão. A chave
+não tem valor padrão e não deve aparecer nos fontes, logs ou diagnósticos. O campo
+password é limpo após salvar. A consulta aparece no fluxo unificado Serviços e no merge.
+
+
+O cliente `src/streamings/lastfm.ts` atende `lastfm:album` e a busca explícita
+`metadata:search` Last.fm, com título/artista e idioma pt/en. `lastfmCandidate`
+converte o resultado validado para o contrato comum, preservando URL, idioma e
+payload; `lastfmDescription` fornece os blocos automaticamente ao adicionar o card.
+Last.fm integra `METADATA_SERVICE_IDS`, mas não a lista `STREAMINGS` de reprodução
+nem o armazenamento de preferência para ouvir. As rotas de reprodução continuam
+recusando Last.fm. O ID da fonte inclui o idioma; a chave da sessão de busca inclui
+o idioma para não reutilizar resultado de outra consulta.
+
+O editor usa uma única seleção **Serviços** e até cinco cards. O painel separado
+Last.fm foi removido. Idioma aparece apenas para Last.fm e artista é obrigatório
+nessa consulta. A descrição retornada já aparece nos detalhes do card. Textos
+longos não são cortados: podem ser copiados ao formulário para edição, mas a
+aplicação permanece bloqueada acima do teto/nativo menor e sem confirmação.
+Remover um card mantém campos copiados e suas referências de capa.
+
+`DescriptionSectionField.about` e `AlbumDescriptionData.about` são comuns e
+opcionais; o formatador e o merge posicionam Sobre o álbum antes de Faixas.
+Tags e MusicBrainz são blocos próprios. Regras opcionais de atribuição por bloco
+em `AlbumDescription.attribution` acrescentam a origem e o link dos Termos da API
+quando o texto é usado, inclusive com fontes opcionais desmarcadas. A atribuição de
+Sobre o álbum Last.fm permanece se o texto for editado manualmente; sai quando o
+bloco é removido ou substituído por outra fonte.
+
+O cliente usa cache HTTP padrão e não mantém cache próprio nem grava respostas Last.fm
+no storage. Os diagnósticos guardam somente horário, etapa, duração, status HTTP,
+código de falha e contagens/indicadores de presença; não guardam API key, URL com
+parâmetros, mensagens remotas ou texto retornado. Os [Termos da API Last.fm](https://www.last.fm/api/tos)
+limitam o uso a fins não comerciais, exigem crédito/link para o catálogo, proíbem
+sublicenciamento, limitam dados armazenados a 100 MB e mandam respeitar cabeçalhos
+HTTP de cache. O mantenedor declarou uso pessoal não comercial. Os termos também
+mencionam aprovação escrita para páginas com acesso público que usem a API; confirmar
+essa exigência com Last.fm antes de distribuir uma versão que ofereça esse acesso.
+
+A capa Last.fm usa o pipeline compartilhado com verificação de CDN/identidade,
+bytes, dimensões e referências. Suíte de 26 arquivos e Chromium simulado em
+`/tmp/collection-to-play-unified-lastfm-browser.mjs` validam seleção unificada,
+card, cópia, origem, merge, texto longo, falhas, respostas tardias e layout móvel.
+Nenhuma chave real foi embutida. Não há commit/push desta integração ainda.

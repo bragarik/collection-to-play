@@ -596,6 +596,7 @@ test("estado por serviço informa conexão e link sem expor sessão ou exigir pr
       {id: "youtube-music", name: "YouTube Music", requiresAuthentication: false, connected: true},
       {id: "apple-music", name: "iTunes", requiresAuthentication: false, connected: true},
       {id: "deezer", name: "Deezer", requiresAuthentication: false, connected: true},
+      {id: "lastfm", name: "Last.fm", requiresAuthentication: false, connected: false},
     ]);
     const query = {type: "metadata:search", service: "spotify", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl};
     const offline = (await send(query, extension)).data;

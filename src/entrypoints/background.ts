@@ -1,3 +1,6 @@
+import {lastfmCandidate, LastfmSource} from "../albums/lastfm-source.js";
+import {LastfmClient, LastfmError, isLastfmSourceId, type LastfmAlbum, type LastfmDiagnostic} from "../streamings/lastfm.js";
+import {LastfmSettings} from "../shared/lastfm-settings.js";
 import {loadAlbumDescription, type DescriptionDiagnostic} from "../streamings/album-description.js";
 import {validateDescriptionAlbum} from "../albums/album-description.js";
 import {DeezerClient, isDeezerAlbumUrl, deezerSearchUrl, type DeezerSearchEvent} from "../streamings/deezer.js";
@@ -39,6 +42,12 @@ const selections = new Map<string, { expiresAt: number; query: AlbumQuery; autom
 const pendingResults = new Map<string, { expiresAt: number; data: unknown }>();
 const sessionKey = "spotify.session";
 const storageReady = chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+const lastfmSettings = new LastfmSettings({
+  async load() {await storageReady;return (await chrome.storage.local.get("lastfm.apiKey"))["lastfm.apiKey"] as unknown;},
+  async save(value) {await storageReady;await chrome.storage.local.set({"lastfm.apiKey": value});},
+  async clear() {await storageReady;await chrome.storage.local.remove("lastfm.apiKey");},
+});
+const lastfm = new LastfmClient({key: () => lastfmSettings.apiKey()});
 const preferences = new LibraryPreferences({
   async load() { await storageReady; return (await chrome.storage.local.get("library.preferences"))["library.preferences"] as unknown; },
   async save(value) { await storageReady; await chrome.storage.local.set({ "library.preferences": value }); },
@@ -61,9 +70,14 @@ const spotifyApplication = new SpotifyApplication({
   },
 }, {
   async load() {await storageReady;return (await chrome.storage.local.get("spotify.clientId"))["spotify.clientId"] as unknown;},
-  async save(clientId) {await storageReady;await chrome.storage.local.set({"spotify.clientId": clientId});},
+  async save(clientId) {await storageReady;if (clientId) await chrome.storage.local.set({"spotify.clientId": clientId});else await chrome.storage.local.remove("spotify.clientId");},
 });
 
+async function queryLastfm(value: unknown) {
+  const events: LastfmDiagnostic[]=[];
+  try {return await lastfm.album(value,{onDiagnostic:event=>{if(events.length<10)events.push(event);}});}
+  finally {try {await storageReady;await chrome.storage.local.set({"lastfm.diagnostic":{updatedAt:new Date().toISOString(),events}});}catch{/* Diagnostics must not replace the result. */}}
+}
 async function openStreamingAlbum(album: AlbumCandidate, target: AlbumOpenTarget): Promise<void> {
   const service = await requireStreamingPreference();
   if (album.service !== service) throw new StreamingError("invalid-query", "O streaming mudou. Reabra a busca no álbum.");
@@ -86,7 +100,7 @@ let artworkWrites: Promise<void> = Promise.resolve();
 async function fetchAndRecordArtwork(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new ArtworkError("invalid-input");
   const input = value as Record<string, unknown>, service = input["service"], albumId = input["id"];
-  if (!isMetadataService(service) || !isMetadataAlbumId(service, albumId)) throw new ArtworkError("invalid-input");
+  if (service === "lastfm" ? !isLastfmSourceId(albumId) : !isMetadataService(service) || !isMetadataAlbumId(service, albumId)) throw new ArtworkError("invalid-input");
   const startedAt = new Date().toISOString(), started = performance.now();
   const events: ArtworkDiagnosticEvent[] = [];
   let outcome: {status: "ready" | "failed"; code?: string} = {status: "failed", code: "network"};
@@ -222,6 +236,7 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
         {id: "youtube-music", name: "YouTube Music", requiresAuthentication: false, connected: true},
         {id: "apple-music", name: "iTunes", requiresAuthentication: false, connected: true},
         {id: "deezer", name: "Deezer", requiresAuthentication: false, connected: true},
+        {id: "lastfm", name: "Last.fm", requiresAuthentication: false, connected: await lastfmSettings.configured()},
       ]};
     }
     case SETUP_REQUEST: {
@@ -260,6 +275,18 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
       if (typeof message["key"] !== "string") throw new StreamingError("invalid-query", "Registro inválido.");
       await preferences.deleteChoice(message["key"]); return {deleted: true};
     }
+    case "lastfm:album": return queryLastfm(message);
+    case "lastfm:artwork": {
+      const source = new LastfmSource(message["album"] as LastfmAlbum);
+      try {return await fetchAndRecordArtwork(source.artworkInput());} finally {source.dispose();}
+    }
+    case "lastfm:status": return {configured: await lastfmSettings.configured()};
+    case "lastfm:configure": {
+      try {await lastfmSettings.save(message["apiKey"]);} catch {throw new StreamingError("invalid-query", "Não foi possível salvar a API key Last.fm. Confira a chave e tente novamente.");}
+      return {configured: true};
+    }
+    case "lastfm:clear": await lastfmSettings.clear();return {configured: false};
+    case "spotify:clear-configuration": await spotifyApplication.clearClientId();return {saved: true};
     case "spotify:configure": await spotifyApplication.setClientId(message["clientId"]); return {saved: true};
     case "spotify:connect": await (await spotifyApplication.get()).connect(); return { connected: true };
     case "spotify:disconnect": await (await spotifyApplication.get()).disconnect(); return { connected: false };
@@ -302,6 +329,12 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
     case "spotify:open":
     case "metadata:search":
     case "spotify:search": {
+      if(message["type"] === "metadata:search" && message["service"] === "lastfm") {
+        if(typeof message["sourceUrl"]!=="string"||!isSupportedCatalogUrl(message["sourceUrl"])||message["nextPage"]!==undefined)throw new StreamingError("invalid-query","Consulta Last.fm inválida.");
+        const album=await queryLastfm(message);
+        return {service:"lastfm",configurationUrl:chrome.runtime.getURL("setup.html"),connectionRequired:false,searchUrl:album.url,
+          resolution:album.status==="empty"?{status:"not-found"}:{status:"choose",candidates:[lastfmCandidate(album)],rememberAlbumByDefault:false}};
+      }
       const opening = message["type"] === "spotify:open";
       const explicitMetadata = message["type"] === "metadata:search";
       if (explicitMetadata && !isMetadataService(message["service"])) throw new StreamingError("invalid-query", "Selecione um streaming disponível para buscar metadados.");
@@ -443,7 +476,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     (error: unknown) => {
       const reply: AppReply<never> = {
         ok: false,
-        error: error instanceof StreamingError || error instanceof ArtworkError
+        error: error instanceof StreamingError || error instanceof ArtworkError || error instanceof LastfmError
           ? { code: error.code, message: error.message }
           : { code: "unexpected", message: "Não foi possível concluir a operação. Recarregue a extensão e tente novamente." },
       };

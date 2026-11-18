@@ -1,3 +1,4 @@
+import {isLastfmSourceId} from "./lastfm.js";
 import {METADATA_SERVICE_IDS, type AlbumCandidate, type MetadataSearchInput, type MetadataSearchReply, type MetadataServiceId, type MetadataServicesReply} from "../shared/contracts.js";
 import {isValidCandidate, StreamingError} from "../albums/resolution.js";
 
@@ -5,11 +6,12 @@ export function isMetadataService(value: unknown): value is MetadataServiceId {
   return METADATA_SERVICE_IDS.some(service => service === value);
 }
 export function isMetadataAlbumId(service: MetadataServiceId, value: unknown): value is string {
+  if(service === "lastfm")return isLastfmSourceId(value);
   return typeof value === "string" && (service === "spotify" ? /^[a-zA-Z0-9]{22}$/ :
     service === "apple-music" || service === "deezer" ? /^[1-9]\d{0,15}$/ : /^MPRE[a-zA-Z0-9_-]{4,200}$/).test(value);
 }
 export function metadataQueryKey(query: MetadataSearchInput): string {
-  return JSON.stringify([query.title.trim(), query.artist.trim(), query.sourceUrl, query.upc ?? "", query.ean ?? ""]);
+  return JSON.stringify([query.title.trim(), query.artist.trim(), query.sourceUrl, query.upc ?? "", query.ean ?? "", query.language ?? ""]);
 }
 /** Binds an adapter's continuation to the service and exact normalized query, without worker-local state. */
 export function bindMetadataPage(service: MetadataServiceId, query: MetadataSearchInput, cursor: string): string {

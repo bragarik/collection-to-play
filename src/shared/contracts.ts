@@ -1,3 +1,4 @@
+import type {LastfmAlbum} from "../streamings/lastfm.js";
 import type { AlbumResolution } from "../albums/resolution.js";
 import type { LibibObservation, LibibEditDiagnostic } from "../libib/libib-diagnostics.js";
 
@@ -6,7 +7,8 @@ export type StreamingId =
   | "deezer"
   | "apple-music"
   | "youtube-music"
-  | "amazon-music";
+  | "amazon-music"
+  | "lastfm";
 
 export const STREAMINGS: readonly {readonly id: StreamingId; readonly name: string; readonly available: boolean}[] = [
   {id: "spotify", name: "Spotify", available: true},
@@ -17,7 +19,7 @@ export const STREAMINGS: readonly {readonly id: StreamingId; readonly name: stri
 ];
 
 export function streamingName(service: string): string {
-  return STREAMINGS.find(item => item.id === service)?.name ?? service;
+  return service === "lastfm" ? "Last.fm" : STREAMINGS.find(item => item.id === service)?.name ?? service;
 }
 
 export interface AlbumQuery {
@@ -46,6 +48,7 @@ export interface AlbumCandidate {
   readonly url: string;
   readonly artworkUrl?: string;
   readonly artworkVariants?: readonly AlbumArtworkVariant[];
+  readonly lastfm?: LastfmAlbum;
   readonly releaseDate?: string;
   readonly upc?: string;
   readonly ean?: string;
@@ -101,9 +104,10 @@ export function isSupportedCatalogUrl(value: string): boolean {
 
 export const SETUP_REQUEST = "setup:get";
 
-export const METADATA_SERVICE_IDS = ["spotify", "youtube-music", "apple-music", "deezer"] as const;
+export const METADATA_SERVICE_IDS = ["spotify", "youtube-music", "apple-music", "deezer", "lastfm"] as const;
 export type MetadataServiceId = typeof METADATA_SERVICE_IDS[number];
 export interface MetadataSearchInput {
+  readonly language?: "pt" | "en";
   readonly title: string;
   readonly artist: string;
   readonly sourceUrl: string;
@@ -133,6 +137,12 @@ export type AppRequest =
   | { readonly type: "preferences:get" }
   | { readonly type: "preferences:set-service"; readonly service: StreamingId }
   | { readonly type: "preferences:delete"; readonly key: string }
+  | { readonly type: "lastfm:album"; readonly title: string; readonly artist: string; readonly language: "pt" | "en" }
+  | { readonly type: "lastfm:artwork"; readonly album: LastfmAlbum }
+  | { readonly type: "lastfm:status" }
+  | { readonly type: "lastfm:configure"; readonly apiKey: string }
+  | { readonly type: "lastfm:clear" }
+  | { readonly type: "spotify:clear-configuration" }
   | { readonly type: "spotify:configure"; readonly clientId: string }
   | { readonly type: "spotify:connect" }
   | { readonly type: "spotify:disconnect" }

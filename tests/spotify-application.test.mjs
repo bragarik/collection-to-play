@@ -43,3 +43,10 @@ test('alterações concorrentes são serializadas e última configuração preva
  const value=setup(first);await Promise.all([value.application.setClientId(second),value.application.setClientId(first)]);
  assert.equal(value.id(),first);assert.equal(await value.application.configuredClientId(),first);
 });
+
+test('remover Client ID encerra sessão e mantém configuração vazia após reinício',async()=>{
+ const value=setup(first);await (await value.application.get()).connect();const old=await value.application.get();
+ await value.application.clearClientId();assert.equal(await value.application.configuredClientId(),'');assert.equal(value.session(),undefined);
+ assert.equal(await value.reload().configuredClientId(),'');await assert.rejects((await value.application.get()).connect(),/Salve o Client ID/);
+ await old.disconnect().catch(()=>{});await value.application.setClientId(second);await (await value.application.get()).connect();assert.equal(value.calls.at(-1).clientId,second);
+});
