@@ -1,8 +1,9 @@
+import {VideoEditor} from "./video-editor.js";
 import {DescriptionMergeDialog} from "../../components/description-merge-dialog.js";
 import type {MergeCard, MergeSelection} from "../../albums/description-merge.js";
 import {rankDescriptionCompleteness} from "../../albums/description-completeness.js";
 import {DESCRIPTION_LIMIT, descriptionLimit, descriptionText, descriptionUsesDetails, type AlbumDescription, type DescriptionReplacement} from "../../albums/album-description.js";
-import {ActionIcon, AlbumArtwork, StreamingIcon} from "../../components/ui-components.js";
+import {ActionIcon, AlbumArtwork, ArtworkDimensions, ArtworkPreview, StreamingIcon} from "../../components/ui-components.js";
 import {render} from "preact";
 import {useEffect, useMemo, useRef, useState} from "preact/hooks";
 import {AlbumComposition, type CompositionField, type CompositionPatch, type FieldSource} from "../../albums/album-composition.js";
@@ -28,9 +29,6 @@ function origin(source: FieldSource): string {
   const value = source.kind === "manual" ? source.basedOn : source;
   const name = value.kind === "catalog" ? "Libib" : value.kind === "complementary" ? `Last.fm · ${value.albumTitle}` : value.kind === "merged" ? `Descrição combinada${value.sources.length ? ` · ${value.sources.map(source => names[source.service]).join(", ")}` : ""}` : `${names[value.service]}${value.albumTitle ? ` · ${value.albumTitle}` : ""}`;
   return source.kind === "manual" ? `Edição manual · ${name}` : name;
-}
-function size(bytes: number): string {
-  return bytes >= 1_000_000 ? `${(bytes / 1_000_000).toLocaleString("pt-BR", {maximumFractionDigits: 2})} MB` : `${(bytes / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 1})} KB`;
 }
 function applyToLibib(patch: CompositionPatch, signal: AbortSignal, descriptionReplacement?: DescriptionReplacement): Promise<LibibApplyResult | LibibPatchResult | {filled: true}> {
   return new Promise((resolve, reject) => {
@@ -271,7 +269,7 @@ function MetadataEditor() {
         {missingCardData.get(card.album.service)?.text && <span class={`source-warning${missingCardData.get(card.album.service)?.tone === "partial" ? " source-info" : ""}`} role="img" aria-label={missingCardData.get(card.album.service)?.text} title={missingCardData.get(card.album.service)?.text} tabIndex={0}>{missingCardData.get(card.album.service)?.tone === "partial" ? "i" : "!"}</span>}
         <button type="button" id={`source-${card.album.service}`} class="source-select" aria-pressed={card.album.service === snapshot.selectedService} disabled={busy} onClick={() => {model.selectAlbum(card.album.service as MetadataServiceId); void model.loadArtwork(card.album.service as MetadataServiceId);}}>
           {card.artwork && <img class="thumb" src={card.artwork.previewUrl} alt=""/>}<span><span class="service"><StreamingIcon service={card.album.service}/>{names[card.album.service as MetadataServiceId]}</span><strong>{card.album.title ?? card.album.id}</strong>
-            {card.artwork ? <><span class="card-artwork-size">{card.artwork.metadata.width} × {card.artwork.metadata.height} px</span>
+            {card.artwork ? <><ArtworkDimensions width={card.artwork.metadata.width} height={card.artwork.metadata.height}/>
               {card.artwork.metadata.width * card.artwork.metadata.height === largestArtwork && <span class="artwork-best" title="Comparação pelo total de pixels das capas carregadas nos álbuns escolhidos."><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/></svg>{comparingArtwork ? "Maior resolução até agora" : largestArtworkCount > 1 ? "Maior resolução · empate" : "Maior resolução"}</span>}</>
               : <span class="card-artwork-size">{card.loadingArtwork ? "Carregando capa…" : "Capa indisponível"}</span>}
             <span class="card-description-status" title={descriptionStatus.get(card.album.service)?.summary}>{card.loadingDescription ? "Consultando descrição…" : !card.description && !card.descriptionError && descriptionUsesDetails(card.album.service) ? "Descrição não consultada" : `Descrição: ${descriptionStatus.get(card.album.service)?.score}/6 dados`}</span>
@@ -283,7 +281,7 @@ function MetadataEditor() {
         {selected ? <><div class="layout-heading"><h2>Dados do {names[selected.album.service as MetadataServiceId]}</h2><button class="btn btn-soft btn-sm" type="button" disabled={busy} onClick={() => copy()}><ActionIcon name="copy"/>+ todos</button></div>
           <div class="detail-field"><div><h3>Título</h3><p>{selected.album.title || "Não informado"}</p></div><button class="btn btn-soft btn-square btn-sm" type="button" aria-label="Copiar título" disabled={busy || !selected.album.title?.trim()} onClick={() => copy("title")}>+</button></div>
           <div class="detail-field"><div><h3>Artistas</h3><ul class="artist-list">{selected.album.artists?.map(value => <li key={value.id}>{value.name}</li>)}</ul></div><button class="btn btn-soft btn-square btn-sm" type="button" aria-label="Copiar artistas" disabled={busy || !selected.album.artists?.length} onClick={() => copy("artists")}>+</button></div>
-          <div class="detail-field"><div><h3>Capa</h3>{selected.artwork ? <><img class="cover-preview" src={selected.artwork.previewUrl} alt={`Capa de ${selected.album.title ?? "álbum"}`}/><p class="note">{selected.artwork.metadata.width} × {selected.artwork.metadata.height} px · {selected.artwork.metadata.format.toUpperCase()} · {size(selected.artwork.metadata.byteLength)}</p>
+          <div class="detail-field"><div><h3>Capa</h3>{selected.artwork ? <><ArtworkPreview src={selected.artwork.previewUrl} alt={`Capa de ${selected.album.title ?? "álbum"}`} metadata={selected.artwork.metadata}/>
             {selected.artwork.metadata.warnings.includes("low-resolution") && <p class="warning alert alert-warning alert-soft">Capa abaixo de 300 × 300 pixels. Você pode usá-la com menor qualidade.</p>}
             {selected.artwork.metadata.warnings.includes("unavailable-variants") && <p class="note">Algumas variantes não puderam ser usadas. Esta é a maior capa válida obtida.</p>}</> : <p class="note">{selected.loadingArtwork ? "Carregando capa… + todos copia os campos já disponíveis." : selected.artworkError?.message ?? "Capa não disponível."}</p>}
             {selected.artworkError && <button class="btn btn-soft btn-sm" type="button" disabled={busy} onClick={() => void model.loadArtwork(selected.album.service as MetadataServiceId)}>Tentar obter a capa novamente</button>}
@@ -300,7 +298,7 @@ function MetadataEditor() {
       <div class="draft-field"><div class="field-heading"><input class="checkbox checkbox-primary checkbox-sm" id="include-title" type="checkbox" aria-label="Aplicar título" checked={snapshot.fields.title.included} disabled={busy} onChange={event => model.setIncluded("title", event.currentTarget.checked)}/><label for="composed-title">Título</label>{resetDraftButton("title")}</div><input class="input w-full" id="composed-title" aria-describedby="title-origin" maxLength={512} value={snapshot.fields.title.value} disabled={busy} onInput={event => model.editTitle(event.currentTarget.value)}/><span id="title-origin" class="origin">Origem: {origin(snapshot.fields.title.source)}</span></div>
       <div class="draft-field"><div class="field-heading"><input class="checkbox checkbox-primary checkbox-sm" id="include-artists" type="checkbox" aria-label="Aplicar artistas" checked={snapshot.fields.artists.included} disabled={busy} onChange={event => model.setIncluded("artists", event.currentTarget.checked)}/><label for="composed-artists">Artistas</label>{resetDraftButton("artists")}</div><textarea class="textarea w-full" id="composed-artists" aria-describedby="artists-origin" rows={3} value={snapshot.fields.artists.value.join("\n")} disabled={busy} onInput={event => model.editArtists(event.currentTarget.value.split(/\r?\n/))}/><span id="artists-origin" class="origin">Origem: {origin(snapshot.fields.artists.source)}</span><p class="note">Um artista por linha.</p></div>
       <div class="draft-field"><div class="field-heading"><input class="checkbox checkbox-primary checkbox-sm" id="include-artwork" type="checkbox" aria-label="Aplicar capa" checked={snapshot.fields.artwork.included} disabled={busy || !snapshot.fields.artwork.value} onChange={event => model.setIncluded("artwork", event.currentTarget.checked)}/><label for="include-artwork">Capa</label>{resetDraftButton("artwork")}</div>
-        {snapshot.fields.artwork.value ? <><img class="cover-preview" src={snapshot.fields.artwork.value.previewUrl} alt="Capa escolhida para o Libib"/><p class="note">{snapshot.fields.artwork.value.metadata.width} × {snapshot.fields.artwork.value.metadata.height} px · {size(snapshot.fields.artwork.value.metadata.byteLength)}</p></> : <p class="note">A capa atual do Libib será mantida.</p>}
+        {snapshot.fields.artwork.value ? <><ArtworkPreview src={snapshot.fields.artwork.value.previewUrl} alt="Capa escolhida para o Libib" metadata={snapshot.fields.artwork.value.metadata}/></> : <p class="note">A capa atual do Libib será mantida.</p>}
         <span class="origin">Origem: {origin(snapshot.fields.artwork.source)}</span>
       </div>
       <div class="draft-field"><div class="field-heading"><input class="checkbox checkbox-primary checkbox-sm" id="include-description" type="checkbox" aria-label="Aplicar descrição" checked={snapshot.fields.description.included} disabled={busy || !descriptionAvailable} onChange={event => model.setIncluded("description", event.currentTarget.checked)}/><label for="composed-description">Descrição</label><button class="btn btn-soft btn-sm" id="combine-descriptions" type="button" disabled={busy || !descriptionAvailable || !snapshot.cards.length} onClick={() => void openDescriptionMerge()}>{preparingMerge ? <span class="loading loading-spinner loading-xs" aria-hidden="true"/> : <ActionIcon name="document"/>}{preparingMerge ? "Preparando…" : "Combinar descrições"}</button>{resetDraftButton("description")}</div>
@@ -323,5 +321,5 @@ function MetadataEditor() {
 const root = document.getElementById("editor-root");
 if (root) {
   if (!isSupportedCatalogUrl(sourceUrl)) root.textContent = "Abra esta ação pelo editor de um álbum no Libib.";
-  else {root.replaceChildren(); render(<MetadataEditor/>, root); window.addEventListener("pagehide", () => render(null, root), {once: true});}
+  else {root.replaceChildren(); render(params.get("media") === "movie" && session ? <VideoEditor sourceUrl={sourceUrl} session={session}/> : <MetadataEditor/>, root); window.addEventListener("pagehide", () => render(null, root), {once: true});}
 }

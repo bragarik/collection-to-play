@@ -8,7 +8,7 @@ Licença: GNU GPL versão 3; texto completo em [LICENSE](LICENSE) e autoria em [
 
 ## Estado atual
 
-Versão local: **0.4.0**.
+Versão local: **0.4.1**.
 
 Integrações implementadas: Libib + Spotify, YouTube Music, iTunes e Deezer.
 Catálogo suportado: https://www.libib.com/library e seus subcaminhos.
@@ -567,3 +567,30 @@ ouvir e não muda o streaming escolhido nas configurações. Remover um card man
 os dados já copiados no formulário. A credencial é pessoal e fica no armazenamento
 local do navegador; diagnósticos não guardam a chave, URL da requisição ou texto
 retornado pela API.
+
+
+## Editar vídeos com TMDb
+
+Em **Configurações → Credencial TMDb**, salve sua API key ou seu token de leitura.
+A credencial fica no armazenamento local do navegador. O campo é esvaziado depois
+de salvar e permite substituir ou remover a credencial.
+
+No Libib, abra a edição de um item de Vídeo e escolha **Atualizar dados via TMDb**.
+Busque o título, adicione uma obra e copie os campos desejados para **Dados para o
+Libib**. Título, Diretores, Descrição e Capa são selecionáveis. Diretores vêm dos
+créditos de direção da obra. A capa corresponde ao pôster fornecido pelo TMDb.
+A descrição reúne a sinopse e os dados disponíveis de ano, duração e gêneros,
+com prévia editável e confirmação da substituição. A prévia da capa mostra
+dimensões, formato e tamanho do arquivo.
+
+Na edição completa, **Preencher campos** prepara o formulário para revisão e
+salvamento pelo botão do Libib. Na edição rápida, aberta pelo lápis, **Aplicar
+dados** salva imediatamente os campos marcados pelo handler nativo do Libib.
+
+Se a busca original vier vazia e o título terminar com Blu-ray, DVD ou VHS,
+a extensão tenta também o título sem esse sufixo. O diagnóstico guarda as
+últimas vinte ocorrências, com termo de busca, idioma, etapa, duração, HTTP e
+quantidade de resultados. Pode ser exportado em **Configurações → Credencial
+TMDb → Exportar diagnóstico TMDb**. O arquivo não contém a credencial.
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.

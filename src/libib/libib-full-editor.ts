@@ -6,6 +6,7 @@ import {ARTWORK_BYTE_LIMIT, imageFormat} from "../albums/album-artwork.js";
 export interface LibibFullEditor {
   readonly form: HTMLFormElement;
   readonly joinId: string;
+  readonly media: "music" | "movie";
   readonly title: HTMLInputElement;
   readonly creators: HTMLInputElement;
   readonly description?: HTMLInputElement | HTMLTextAreaElement;
@@ -19,7 +20,7 @@ export function readDescriptionControl(form: HTMLFormElement): HTMLInputElement 
   return control;
 }
 
-export function readLibibFullEditor(form: HTMLFormElement, pageUrl: string): LibibFullEditor | undefined {
+export function readLibibFullEditor(form: HTMLFormElement, pageUrl: string, allowMovie = false): LibibFullEditor | undefined {
   if (!isSupportedCatalogUrl(pageUrl) || form.id !== "edit-item-form" || !form.isConnected || !form.getClientRects().length ||
     form.ownerDocument.defaultView?.getComputedStyle(form).visibility === "hidden" || form.method.toLowerCase() !== "post" ||
     form.parentElement?.id !== "edit-item-details") return undefined;
@@ -36,8 +37,12 @@ export function readLibibFullEditor(form: HTMLFormElement, pageUrl: string): Lib
   const music = cards.length ? cards.some(card => card.classList.contains("music")) :
     [...form.closest("#item-details-info")?.querySelectorAll(".details-view .media-tag") ?? []]
       .some(tag => /^(music|música|musica)$/i.test(tag.textContent?.trim() ?? ""));
+  const movie = allowMovie && (cards.some(card => card.classList.contains("movie")) ||
+    [...form.ownerDocument.querySelectorAll<HTMLElement>('.jump-edit[data-item-type="movie"][data-join-id]')]
+      .some(editor => editor.dataset["joinId"] === joinId));
+  if (!music && !movie || music && movie) return undefined;
   const description = readDescriptionControl(form);
-  return music ? {form, joinId, title, creators, ...(description ? {description} : {})} : undefined;
+  return {form, joinId, media: movie ? "movie" : "music", title, creators, ...(description ? {description} : {})};
 }
 
 /** Changes only the two text inputs; saving stays under the native form's control. */
@@ -60,11 +65,14 @@ export async function fillLibibFullEditorPatch(context: LibibFullEditor, pageUrl
 } = {}): Promise<void> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Escolha os campos que deseja preencher.");
   const patch = value as Record<string, unknown>, keys = Object.keys(patch);
-  if (!keys.length || keys.some(key => !["title", "artists", "artwork", "description"].includes(key) || patch[key] === undefined)) throw new Error("Escolha somente título, artistas, capa ou descrição.");
+  const creatorKey = context.media === "movie" ? "directors" : "artists";
+  if (!keys.length || keys.some(key => !["title", creatorKey, "artwork", "description"].includes(key) || patch[key] === undefined)) {
+    throw new Error("Escolha somente os campos disponíveis para este item.");
+  }
   const assertCurrent = (): LibibFullEditor => {
-    const current = readLibibFullEditor(context.form, pageUrl);
+    const current = readLibibFullEditor(context.form, pageUrl, context.media === "movie");
     if (options.signal?.aborted || options.isCurrent?.() === false || !current || current.joinId !== context.joinId ||
-      current.title !== context.title || current.creators !== context.creators) throw new Error("A edição mudou. Reabra a busca no item que deseja alterar.");
+      current.media !== context.media || current.title !== context.title || current.creators !== context.creators) throw new Error("A edição mudou. Reabra a busca no item que deseja alterar.");
     return current;
   };
   assertCurrent();
@@ -80,9 +88,9 @@ export async function fillLibibFullEditorPatch(context: LibibFullEditor, pageUrl
     if (typeof patch["title"] !== "string" || !patch["title"].trim() || patch["title"].length > 512) throw new Error("Informe um título válido com até 512 caracteres.");
     title = patch["title"].trim();
   }
-  if (keys.includes("artists")) {
+  if (keys.includes(creatorKey)) {
     // Reuse the captured creator serialization without requiring an unchosen title.
-    creators = prepareAlbumMetadata({title: "Dados do álbum", artists: patch["artists"]}).creatorsText;
+    creators = prepareAlbumMetadata({title: "Dados do item", artists: patch[creatorKey]}).creatorsText;
   }
   if (keys.includes("artwork")) {
     const candidates = [...context.form.querySelectorAll<HTMLInputElement>('input[name="image"]')];

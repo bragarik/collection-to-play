@@ -17,6 +17,61 @@ function choiceTitle(choice: RememberedChoice): string {
   } catch { /* Invalid older labels do not change the association. */ }
   return choice.album?.title ?? "Álbum da coleção";
 }
+function TmdbSettings() {
+  const [token, setToken] = useState("");
+  const [configured, setConfigured] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  useEffect(() => {
+    void chrome.storage.local.get("tmdb.readToken")
+      .then(value => setConfigured(Boolean(value["tmdb.readToken"])))
+      .catch(() => setFeedback("Não foi possível ler a configuração."));
+  }, []);
+  async function update(remove: boolean) {
+    setBusy(true);
+    try {
+      if (remove) await chrome.storage.local.remove("tmdb.readToken");
+      else await chrome.storage.local.set({"tmdb.readToken": token.trim()});
+      setConfigured(!remove);
+      setToken("");
+      setFeedback(remove ? "Token removido." : "Token salvo neste navegador.");
+    } catch {setFeedback("Não foi possível atualizar a configuração.");}
+    finally {setBusy(false);}
+  }
+  return <details id="tmdb-settings" class="settings-section card card-border">
+    <summary><span class="section-title">Credencial TMDb</span><span class="section-badge badge badge-soft">{configured ? "Token configurado" : "Sem token"}</span></summary>
+    <div class="section-content">
+      <p class="note">Usado para consultar obras no editor de Vídeo do Libib.</p>
+      <form onSubmit={event => {event.preventDefault(); if (token.trim()) void update(false);}}>
+        <label for="tmdb-token">API key ou token de leitura da API</label>
+        <input id="tmdb-token" class="input w-full" type="password" required autoComplete="off" spellcheck={false} value={token} disabled={busy}
+          placeholder={configured ? "Digite outro token para substituir" : "Cole sua API key ou token de leitura"}
+          onInput={event => setToken(event.currentTarget.value)}/>
+        <div class="settings-actions">
+          <button class="btn btn-primary" type="submit" disabled={busy || !token.trim()}><ActionIcon name="save"/>Salvar token</button>
+          <button class="btn btn-soft" type="button" disabled={busy || !configured} onClick={() => void update(true)}><ActionIcon name="trash"/>Remover token</button>
+        </div>
+      </form>
+      <Feedback id="tmdb-feedback">{feedback}</Feedback>
+      <div class="settings-actions"><button class="btn btn-soft" type="button" disabled={busy} onClick={() => {
+        void chrome.storage.local.get("tmdb.diagnostic").then(value => {
+          const diagnostic = value["tmdb.diagnostic"] as {events?: Record<string, unknown>[]} | undefined;
+          if (!Array.isArray(diagnostic?.events) || !diagnostic.events.length) {
+            setFeedback("Faça uma consulta de vídeo antes de exportar o diagnóstico.");
+            return;
+          }
+          const events = diagnostic.events.slice(-20).map((event: Record<string, unknown>) => ({
+            at: event["at"], stage: event["stage"], query: event["query"], language: event["language"],
+            durationMs: event["durationMs"], status: event["status"], count: event["count"], outcome: event["outcome"],
+          }));
+          downloadJson({schemaVersion: 1, extensionVersion: chrome.runtime.getManifest().version, events}, "collection-to-play-tmdb");
+        }).catch(() => setFeedback("Não foi possível exportar o diagnóstico."));
+      }}><ActionIcon name="download"/>Exportar diagnóstico TMDb</button></div>
+      <p class="note"><a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">Abrir configurações da API do TMDb</a></p>
+    </div>
+  </details>;
+}
+
 function Setup() {
   const [lastfmKey, setLastfmKey] = useState(""), [lastfmConfigured, setLastfmConfigured] = useState(false), [lastfmFeedback, setLastfmFeedback] = useState("");
   const [clientId, setClientId] = useState(""), [clientFeedback, setClientFeedback] = useState("");
@@ -189,6 +244,7 @@ function Setup() {
         </form><Feedback id="lastfm-key-feedback">{lastfmFeedback}</Feedback>
         <p class="note"><a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">Criar API key no Last.fm</a></p>
       </div></details>
+      <TmdbSettings/>
     </main><footer><ProjectSupport/><a id="open-library" href={info?.catalog.libraryUrl ?? "https://www.libib.com/library"} target="_blank" rel="noopener noreferrer">Abrir biblioteca no Libib</a></footer>
   </>;
 }

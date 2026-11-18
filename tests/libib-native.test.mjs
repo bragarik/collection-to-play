@@ -5,11 +5,11 @@ import {isLibibApplyResult,describeLibibApplyResult} from '../src/libib/libib-me
 
 const request={joinId:'101',libraryId:'202',field:'title',value:'Novo título',titleOverride:'Ordenação'};
 const classes=()=>{const values=new Set();return {add:x=>values.add(x),remove:x=>values.delete(x),contains:x=>values.has(x)};};
-function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHandler=false,description,descriptionMaxLength=5000}={}){
+function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHandler=false,description,descriptionMaxLength=5000,media="music"}={}){
  const handlers=new Map(),bodies=[];let selected,inputs=[],privateSaved;const privateItem={title:'Anterior',creators:['Anterior'],title_override:'Ordenação',...(description!==undefined?{description}:{})};
  const imageField={kind:'field',field:'image'},titleField={kind:'field',field:'title'},creatorField={kind:'field',field:'creators'},save={kind:'save',disabled:false,classList:classes()},close={classList:classes()};
  const form={querySelector:s=>inputs.find(input=>s.includes('"'+input.name+'"')),querySelectorAll:s=>s.includes('button')?[...inputs,save]:s.includes('input[name=')?inputs.filter(input=>s.includes('"'+input.name+'"')):inputs};
- const root={isConnected:true,dataset:{joinId:'101',libraryId:'202',itemType:'music'},getClientRects:()=>[1],
+ const root={isConnected:true,dataset:{joinId:'101',libraryId:'202',itemType:media},getClientRects:()=>[1],
   querySelector:s=>s==='#quick-edit-form'?form:s==='#jump-cover-save'?save:s.includes('data-key="title"')?titleField:s.includes('data-key="creators"')?creatorField:s.includes('data-key="image"')?imageField:s.includes('data-key="description"')&&description!==undefined?{kind:'field',field:'description'}:undefined,
   querySelectorAll:()=>close.classList.contains('disabled')?[close]:[]};
  const roots=[root],listeners=new Map(),replies=[];
@@ -27,7 +27,7 @@ function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHa
     if(selected==='title')inputs.push({name:'title_override',value:privateItem.title_override,disabled:false});return;
    }
    if(target.kind!=='save'||noHandler)return;
-   const data=new FormData();data.set('join_id','101');data.set('library_id','202');data.set('item_type','music');for(const input of inputs)if(input.type==='file')data.set('image-0',input.files[0]);else data.set(input.name,input.value.trim());
+   const data=new FormData();data.set('join_id','101');data.set('library_id','202');data.set('item_type',media);for(const input of inputs)if(input.type==='file')data.set('image-0',input.files[0]);else data.set(input.name,input.value.trim());
    const settings={url:'/quickedit/update-field/submit',type:'POST',data};bodies.push(Object.fromEntries(data));
    const xhr={status,responseText:raw??JSON.stringify({outcome}),abort(){this.status=0;emit('ajaxComplete',this,settings);}};capturedXHR=xhr;
    for(const input of inputs)input.disabled=true;save.disabled=true;save.classList.add('loading');close.classList.add('disabled');
@@ -168,4 +168,22 @@ test('não envia descrição acima do limite comum, menor ou zero do campo nativ
   const result=await saveLibibNativeField(value.page,value.jquery,{joinId:'101',libraryId:'202',field:'description',value:text,expectedDescription:'Original',descriptionConfirmed:true},signal());
   assert.equal(result.confirmed,false);assert.equal(value.bodies.length,0);assert.equal(value.snapshot().item.description,'Original');
  }
+});
+
+test('edição rápida de vídeo confirma o handler movie para diretores e preserva título', async () => {
+ const value=setup({media:'movie'});
+ const result=await saveLibibNativeField(value.page,value.jquery,{joinId:'101',libraryId:'202',media:'movie',field:'creators',value:'François Girard'},signal());
+ assert.equal(result.confirmed,true);
+ assert.equal(value.bodies[0].item_type,'movie');
+ assert.equal(value.bodies[0].creators,'François Girard');
+ assert.equal(value.snapshot().item.title,'Anterior');
+});
+test('mídia divergente impede gravação nativa de vídeo ou música', async () => {
+ for(const media of ['movie','music']){
+  const value=setup({media});
+  const result=await saveLibibNativeField(value.page,value.jquery,{...request,media:media==='movie'?'music':'movie'},signal());
+  assert.equal(result.confirmed,false);
+  assert.equal(value.bodies.length,0);
+ }
+ assert.equal(parseNativeSaveRequest({...request,media:'book'}),undefined);
 });

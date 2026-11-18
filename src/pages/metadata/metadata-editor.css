@@ -30,7 +30,7 @@ a { color: var(--color-primary); }
 .streaming-choice-status { display: flex; align-items: center; justify-content: center; gap: 3px; min-height: 17px; font-size: 11px; color: #185c48; }
 .streaming-choice-status .action-icon { width: 13px; height: 13px; }
 .wide { grid-column: 1 / -1; }
-.search-actions, .layout-heading { display: flex; gap: 10px; align-items: center; }
+.search-actions, .layout-heading { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .search-actions .btn, .result .btn { flex-shrink: 0; }
 .connection { display: block; margin: 12px 0; }
 .connection .btn { margin-top: 8px; }
@@ -142,3 +142,5 @@ a { color: var(--color-primary); }
   .merge-sources, .merge-draft { overflow: visible; padding: 12px; }
   .merge-draft { border-left: 0; border-top: 1px solid var(--color-base-300); }
 }
+
+.video-attribution { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--color-base-300); }

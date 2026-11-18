@@ -1,6 +1,6 @@
 {
   "name": "collection-to-play",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Open albums from your collection in your preferred streaming service.",
   "license": "GPL-3.0",

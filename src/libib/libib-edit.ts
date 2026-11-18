@@ -58,6 +58,7 @@ export interface LibibFieldConfirmation {
 }
 
 interface ClientOptions {
+  readonly media?: "music" | "movie";
   readonly pageUrl: () => string;
   readonly isCurrent?: () => boolean;
   readonly fetch?: typeof fetch;
@@ -93,7 +94,7 @@ export class LibibEditClient {
   async load(target: LibibEditTarget, signal?: AbortSignal): Promise<LibibEditSnapshot> {
     const current = targetCopy(target, "load");
     const data = await this.request(
-      `/quickedit/load-fields/${current.joinId}`, new URLSearchParams({item_type: "music"}), "load", signal,
+      `/quickedit/load-fields/${current.joinId}`, new URLSearchParams({item_type: this.options.media ?? "music"}), "load", signal,
     );
     const item = data.item;
     const fields = data.input_fields;
@@ -134,7 +135,7 @@ export class LibibEditClient {
     target: LibibEditTarget, field: "title" | "creators", values: Record<string, string>, signal?: AbortSignal,
   ): Promise<LibibFieldConfirmation> {
     const body = new FormData();
-    for (const [key, value] of Object.entries({join_id: target.joinId, item_type: "music", library_id: target.libraryId, ...values})) {
+    for (const [key, value] of Object.entries({join_id: target.joinId, item_type: this.options.media ?? "music", library_id: target.libraryId, ...values})) {
       body.set(key, value);
     }
     await this.request("/quickedit/update-field/submit", body, field, signal);

@@ -2,9 +2,10 @@ import {useState} from "preact/hooks";
 import {isAlbumArtworkUrl} from "../albums/album-artwork.js";
 import type {ComponentChildren} from "preact";
 
-type ActionIconName = "search" | "album-add" | "trash" | "copy" | "check" | "save" | "bookmark" | "download" | "refresh" | "document";
+type ActionIconName = "search" | "album-add" | "trash" | "copy" | "check" | "save" | "bookmark" | "download" | "refresh" | "document" | "video";
 export function ActionIcon({name}: {name: ActionIconName}) {
   const shapes: Record<ActionIconName, ComponentChildren> = {
+    video: <><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4"/><path d="m10 9 5 3-5 3Z"/></>,
     document: <><path d="M14 3H5v18h14V8Z"/><path d="M14 3v5h5M8 12h8M8 16h6"/></>,
     search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></>,
     "album-add": <><circle cx="10" cy="11" r="8"/><circle cx="10" cy="11" r="2"/><path d="M18 16v6m-3-3h6"/></>,
@@ -44,4 +45,25 @@ export function AlbumArtwork({album, className = "thumb"}: {album: import("../sh
   return album.artworkUrl && isAlbumArtworkUrl(album.service, album.artworkUrl) && !failed
     ? <img class={className} src={album.artworkUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)}/>
     : <span class={`${className} artwork-placeholder`} aria-hidden="true">♪</span>;
+}
+
+export function ArtworkDimensions({width, height}: {width: number; height: number}) {
+  return <span class="card-artwork-size">{width} × {height} px</span>;
+}
+
+export interface ArtworkPreviewMetadata {
+  readonly width: number;
+  readonly height: number;
+  readonly format: string;
+  readonly byteLength: number;
+}
+export function ArtworkPreview({src, alt, metadata}: {src: string; alt: string; metadata: ArtworkPreviewMetadata}) {
+  const bytes = metadata.byteLength;
+  const size = bytes >= 1_000_000
+    ? `${(bytes / 1_000_000).toLocaleString("pt-BR", {maximumFractionDigits: 2})} MB`
+    : `${(bytes / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 1})} KB`;
+  return <>
+    <img class="cover-preview" src={src} alt={alt} referrerPolicy="no-referrer"/>
+    <p class="note">{metadata.width} × {metadata.height} px · {metadata.format.toUpperCase()} · {size}</p>
+  </>;
 }

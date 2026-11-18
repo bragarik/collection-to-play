@@ -3,7 +3,7 @@ import {validateArtworkFile} from "./libib-metadata.js";
 import {isSupportedCatalogUrl} from "../shared/contracts.js";
 import type {LibibEditErrorCode} from "./libib-edit.js";
 
-export type NativeSaveRequest = {readonly joinId: string; readonly libraryId: string} & (
+export type NativeSaveRequest = {readonly joinId: string; readonly libraryId: string; readonly media?: "music" | "movie"} & (
   | {readonly field: "title" | "creators"; readonly value: string; readonly titleOverride?: string}
   | {readonly field: "description"; readonly value: string; readonly expectedDescription: string; readonly descriptionConfirmed: true}
   | {readonly field: "image"; readonly value: File}
@@ -33,17 +33,19 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 export function parseNativeSaveRequest(value: unknown): NativeSaveRequest | undefined {
   if (!record(value) || ![value["joinId"], value["libraryId"]].every(id => typeof id === "string" && /^[1-9]\d{0,19}$/.test(id))) return undefined;
+  if (value["media"] !== undefined && value["media"] !== "music" && value["media"] !== "movie") return undefined;
+  const media = value["media"] === "movie" ? {media: "movie" as const} : {};
   const field = value["field"], text = value["value"], override = value["titleOverride"];
   if (field === "description") {
     try {return value["descriptionConfirmed"] === true && typeof value["expectedDescription"] === "string" && value["expectedDescription"].length <= 200_000
-      ? {joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: descriptionText(text), expectedDescription: value["expectedDescription"], descriptionConfirmed: true} : undefined;}
+      ? {...media, joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: descriptionText(text), expectedDescription: value["expectedDescription"], descriptionConfirmed: true} : undefined;}
     catch {return undefined;}
   }
   if (field === "image") return text instanceof File && text.size > 0 && text.size <= 20_000_000
-    ? {joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: text} : undefined;
+    ? {...media, joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: text} : undefined;
   if ((field !== "title" && field !== "creators") || typeof text !== "string" || !text.trim() || text.length > (field === "title" ? 512 : 52_000)) return undefined;
   if (field === "title" && (typeof override !== "string" || override.length > 512)) return undefined;
-  return {joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: text,
+  return {...media, joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: text,
     ...(field === "title" ? {titleOverride: override as string} : {})};
 }
 export function isNativeSaveOutcome(value: unknown): value is NativeSaveOutcome {
@@ -56,7 +58,7 @@ function currentEditor(document: Document, request: NativeSaveRequest): HTMLElem
   const roots = [...document.querySelectorAll<HTMLElement>(".jump-edit")].filter(root => root.isConnected && root.getClientRects().length &&
     document.defaultView?.getComputedStyle(root).visibility !== "hidden");
   const root = roots[0];
-  return roots.length === 1 && root?.dataset["itemType"] === "music" && root.dataset["joinId"] === request.joinId &&
+  return roots.length === 1 && root?.dataset["itemType"] === (request.media ?? "music") && root.dataset["joinId"] === request.joinId &&
     root.dataset["libraryId"] === request.libraryId ? root : undefined;
 }
 
@@ -78,7 +80,7 @@ export async function saveLibibNativeField(
   }
   if (currentEditor(page.document, request) !== root) return fail("invalid-context");
   const data = jquery(root);
-  if (String(data.data("join-id")) !== request.joinId || String(data.data("library-id")) !== request.libraryId || data.data("item-type") !== "music") return fail("invalid-context");
+  if (String(data.data("join-id")) !== request.joinId || String(data.data("library-id")) !== request.libraryId || data.data("item-type") !== (request.media ?? "music")) return fail("invalid-context");
   const field = root.querySelector<HTMLElement>(`.jump-list [data-key="${request.field}"]`);
   const save = root.querySelector<HTMLButtonElement>("#jump-cover-save");
   if (!field || !save || save.disabled || save.classList.contains("loading")) return fail("invalid-context");
@@ -131,7 +133,7 @@ export async function saveLibibNativeField(
         const body = settings["data"];
         return url.origin === page.location.origin && url.pathname === "/quickedit/update-field/submit" &&
           String(settings["type"] ?? settings["method"]).toUpperCase() === "POST" && body instanceof FormData &&
-          body.get("join_id") === request.joinId && body.get("library_id") === request.libraryId && body.get("item_type") === "music" &&
+          body.get("join_id") === request.joinId && body.get("library_id") === request.libraryId && body.get("item_type") === (request.media ?? "music") &&
           (request.field === "image" ? (() => {
             const file = body.get("image-0");
             return file instanceof File && file.size === request.value.size && file.name === request.value.name && file.type === request.value.type &&

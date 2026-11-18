@@ -915,3 +915,19 @@ bytes, dimensões e referências. Suíte de 26 arquivos e Chromium simulado em
 `/tmp/collection-to-play-unified-lastfm-browser.mjs` validam seleção unificada,
 card, cópia, origem, merge, texto longo, falhas, respostas tardias e layout móvel.
 Nenhuma chave real foi embutida. Não há commit/push desta integração ainda.
+
+
+O fluxo de Vídeo usa o mesmo modal e a página metadata-editor, com o componente
+específico em `src/pages/metadata/video-editor.tsx`. O TMDb atende exclusivamente
+a mídia movie, com busca e detalhes incluindo créditos de direção. A configuração
+da credencial fica em `src/pages/setup/setup.tsx`. A API key usa o parâmetro
+api_key; o token de leitura usa Authorization Bearer. O diagnóstico local
+tmdb.diagnostic preserva até vinte eventos e a exportação projeta os campos
+de diagnóstico sem credencial ou URL autenticada.
+
+`src/libib/libib-edit.ts` recebe a mídia explicitamente na edição rápida.
+`src/libib/libib-native.ts` confere a mídia, o item e a biblioteca antes de
+acionar e confirmar o handler nativo. O editor completo verifica o contexto
+movie e usa directors no contrato de preenchimento, mapeado para creators no
+formulário do Libib. Música e Vídeo reutilizam ArtworkPreview para apresentar
+a capa com dimensões, formato e tamanho. As medidas vêm do arquivo decodificado.

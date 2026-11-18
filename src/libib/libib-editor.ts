@@ -36,19 +36,20 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
   const mounted = new Map<HTMLElement, MountedEditor>();
   const identity = (root: HTMLElement): string | undefined => {
     if (root.matches("#edit-item-form")) {
-      const context = readLibibFullEditor(root as HTMLFormElement, options.pageUrl());
-      return context ? JSON.stringify([options.pageUrl(), "full", context.joinId]) : undefined;
+      const context = readLibibFullEditor(root as HTMLFormElement, options.pageUrl(), true);
+      return context ? JSON.stringify([options.pageUrl(), "full", context.media, context.joinId]) : undefined;
     }
-    if (!isSupportedCatalogUrl(options.pageUrl()) || !visible(root) || root.dataset["itemType"] !== "music" ||
+    if (!isSupportedCatalogUrl(options.pageUrl()) || !visible(root) || !["music", "movie"].includes(root.dataset["itemType"] ?? "") ||
       !/^[1-9]\d{0,19}$/.test(root.dataset["joinId"] ?? "") ||
       !/^[1-9]\d{0,19}$/.test(root.dataset["libraryId"] ?? "")) return undefined;
-    return JSON.stringify([options.pageUrl(), root.dataset["joinId"], root.dataset["libraryId"]]);
+    return JSON.stringify([options.pageUrl(), root.dataset["itemType"], root.dataset["joinId"], root.dataset["libraryId"]]);
   };
 
   function mount(root: HTMLElement, menu: Element, key: string): MountedEditor {
     const full = root.matches("#edit-item-form");
     const diagnostics = createLibibEditDiagnostics(full ? "full" : "quick", options.recordDiagnostic);
-    const label = "Atualizar dados via streaming";
+    const movie = full ? readLibibFullEditor(root as HTMLFormElement, options.pageUrl(), true)?.media === "movie" : root.dataset["itemType"] === "movie";
+    const label = movie ? "Atualizar dados via TMDb" : "Atualizar dados via streaming";
     const actionHost = document.createElement(full ? "span" : "li");
     const action = mountEditorAction(actionHost, full, label);
     const host = document.createElement("div");
@@ -75,8 +76,9 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
     let descriptionMaxLength = DESCRIPTION_LIMIT;
     let applying = false;
     const current = (): boolean => identity(root) === key && dialog.open;
-    const client = new LibibEditClient({pageUrl: options.pageUrl, isCurrent: current});
-    const saveNative = (request: NativeSaveRequest, signal?: AbortSignal): Promise<NativeSaveOutcome> => new Promise(resolve => {
+    const client = new LibibEditClient({pageUrl: options.pageUrl, isCurrent: current, media: movie ? "movie" : "music"});
+    const saveNative = (originalRequest: NativeSaveRequest, signal?: AbortSignal): Promise<NativeSaveOutcome> => new Promise(resolve => {
+      const request = movie ? {...originalRequest, media: "movie" as const} : originalRequest;
       const page = document.defaultView;
       if (!page || !current() || !signal || signal.aborted) {
         resolve({confirmed: false, writeMayHaveOccurred: false, code: "invalid-context"}); return;
@@ -128,7 +130,7 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
       dialog.showModal();
       close.focus();
       try {
-        const context = full ? readLibibFullEditor(root as HTMLFormElement, options.pageUrl()) : undefined;
+        const context = full ? readLibibFullEditor(root as HTMLFormElement, options.pageUrl(), true) : undefined;
         if (full && !context) throw new Error("A edição mudou. Reabra a busca neste item.");
         const snapshot = context ? {title: context.title.value, artist: context.creators.value, description: context.description?.value, maxLength: context.description?.maxLength} : await diagnostics.read(() => client.load({joinId: root.dataset["joinId"]!, libraryId: root.dataset["libraryId"]!}, signal)).then(item => ({title: item.title, artist: item.creators.join(", "), description: item.description, maxLength: item.descriptionMaxLength}));
         descriptionMaxLength = descriptionLimit(snapshot.maxLength);
@@ -138,6 +140,7 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
         url.searchParams.set("mode", "metadata");
         url.searchParams.set("selective", "true");
         if (full) url.searchParams.set("editor", "full");
+        if (movie) url.searchParams.set("media", "movie");
         url.searchParams.set("session", session);
         url.searchParams.set("service", options.service());
         url.searchParams.set("title", snapshot.title);
@@ -179,7 +182,7 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
           }
         }
         if (full && message["patch"] !== undefined) {
-          const context = readLibibFullEditor(root as HTMLFormElement, options.pageUrl());
+          const context = readLibibFullEditor(root as HTMLFormElement, options.pageUrl(), true);
           if (!context) throw new Error("A edição mudou. Reabra a busca neste item.");
           await diagnostics.fillAsync(() => fillLibibFullEditorPatch(context, options.pageUrl(), message["patch"], {isCurrent: current, ...(replacement ? {descriptionReplacement: replacement} : {}),
             ...(controller ? {signal: controller.signal} : {})}));
@@ -189,7 +192,15 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
         if (!full && message["patch"] !== undefined) {
           const target = {joinId: root.dataset["joinId"]!, libraryId: root.dataset["libraryId"]!};
           const signal = controller?.signal;
-          const result = await applyLibibPatch(message["patch"], async (field, value) => {
+          const videoPatch = message["patch"];
+          let quickPatch = videoPatch;
+          if (movie && videoPatch && typeof videoPatch === "object" && !Array.isArray(videoPatch)) {
+            const fields = videoPatch as Record<string, unknown>;
+            if ("artists" in fields) throw new Error("Escolha diretores para este vídeo.");
+            const {directors, ...rest} = fields;
+            quickPatch = {...rest, ...("directors" in fields ? {artists: directors} : {})};
+          }
+          const result = await applyLibibPatch(quickPatch, async (field, value) => {
             if (!current() || session !== message["session"] || signal?.aborted) return {confirmed: false, writeMayHaveOccurred: false, code: "cancelled"};
             let request: NativeSaveRequest;
             if (field === "image" && value instanceof File) request = {...target, field, value};
@@ -211,10 +222,11 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
           }
           return;
         }
+        if (movie) throw new Error("Escolha os campos de vídeo que deseja preencher.");
         const {metadata} = prepareAlbumMetadata(message["metadata"]);
         if (full) {
           diagnostics.fill(() => {
-            const context = readLibibFullEditor(root as HTMLFormElement, options.pageUrl());
+            const context = readLibibFullEditor(root as HTMLFormElement, options.pageUrl(), true);
             if (!context) throw new Error("A edição mudou. Reabra a busca neste item.");
             fillLibibFullEditor(context, options.pageUrl(), metadata);
           });
