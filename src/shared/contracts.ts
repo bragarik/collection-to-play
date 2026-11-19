@@ -1,4 +1,7 @@
+import type {DiscogsRelease, DiscogsSearch} from "../streamings/discogs.js";
+import type {UpcitemdbProduct, UpcitemdbQuery} from "../streamings/upcitemdb.js";
 import type {LastfmAlbum} from "../streamings/lastfm.js";
+import type {AlbumDescription} from "../albums/album-description.js";
 import type { AlbumResolution } from "../albums/resolution.js";
 import type { LibibObservation, LibibEditDiagnostic } from "../libib/libib-diagnostics.js";
 
@@ -8,7 +11,10 @@ export type StreamingId =
   | "apple-music"
   | "youtube-music"
   | "amazon-music"
-  | "lastfm";
+  | "lastfm"
+  | "discogs"
+  | "upcitemdb"
+  | "tmdb";
 
 export const STREAMINGS: readonly {readonly id: StreamingId; readonly name: string; readonly available: boolean}[] = [
   {id: "spotify", name: "Spotify", available: true},
@@ -19,7 +25,8 @@ export const STREAMINGS: readonly {readonly id: StreamingId; readonly name: stri
 ];
 
 export function streamingName(service: string): string {
-  return service === "lastfm" ? "Last.fm" : STREAMINGS.find(item => item.id === service)?.name ?? service;
+  if (service === "upcitemdb") return "UPCitemdb";
+  return service === "discogs" ? "Discogs" : service === "tmdb" ? "TMDb" : service === "lastfm" ? "Last.fm" : STREAMINGS.find(item => item.id === service)?.name ?? service;
 }
 
 export interface AlbumQuery {
@@ -47,8 +54,12 @@ export interface AlbumCandidate {
   readonly artists: readonly { readonly id: string; readonly name: string }[];
   readonly url: string;
   readonly artworkUrl?: string;
+  readonly searchThumbnailUrl?: string;
   readonly artworkVariants?: readonly AlbumArtworkVariant[];
   readonly lastfm?: LastfmAlbum;
+  readonly discogs?: DiscogsRelease;
+  readonly upcitemdb?: UpcitemdbProduct;
+  readonly description?: AlbumDescription;
   readonly releaseDate?: string;
   readonly upc?: string;
   readonly ean?: string;
@@ -104,8 +115,8 @@ export function isSupportedCatalogUrl(value: string): boolean {
 
 export const SETUP_REQUEST = "setup:get";
 
-export const METADATA_SERVICE_IDS = ["spotify", "youtube-music", "apple-music", "deezer", "lastfm"] as const;
-export type MetadataServiceId = typeof METADATA_SERVICE_IDS[number];
+export const METADATA_SERVICE_IDS = ["spotify", "youtube-music", "apple-music", "deezer", "lastfm", "discogs", "upcitemdb"] as const;
+export type MetadataServiceId = typeof METADATA_SERVICE_IDS[number] | "tmdb";
 export interface MetadataSearchInput {
   readonly language?: "pt" | "en";
   readonly title: string;
@@ -123,8 +134,22 @@ export interface MetadataSearchReply extends AlbumSearchReply {
   readonly configurationUrl: string;
   readonly connectionRequired: boolean;
 }
+export interface UpcitemdbSearchReply {
+  readonly mode: "barcode" | "title";
+  readonly total: number;
+  readonly candidates: readonly AlbumCandidate[];
+  readonly nextPage?: string;
+}
 
 export type AppRequest =
+  | {readonly type: "upcitemdb:search"; readonly query: UpcitemdbQuery; readonly sourceUrl: string}
+  | {readonly type: "discogs:search"; readonly query: DiscogsSearch}
+  | {readonly type: "discogs:release"; readonly id: string}
+  | {readonly type: "discogs:status"}
+  | {readonly type: "discogs:configure"; readonly token: string}
+  | {readonly type: "discogs:clear"}
+  | {readonly type: "discogs:diagnostics"}
+
   | { readonly type: typeof SETUP_REQUEST }
   | { readonly type: "metadata:services" }
   | { readonly type: "metadata:description"; readonly album: AlbumCandidate; readonly sourceUrl: string }

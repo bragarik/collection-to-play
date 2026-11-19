@@ -6,6 +6,16 @@ import {AlbumComposition} from '../src/albums/album-composition.ts';
 import {AlbumArtworkResource,fetchAlbumArtwork,isAlbumArtworkUrl,loadAlbumArtworkResource} from '../src/albums/album-artwork.ts';
 const png=Uint8Array.from([137,80,78,71,13,10,26,10,1]);
 const album=(changes={})=>parseLastfmAlbum({album:{name:'Siderado',artist:'Skank',url:'https://www.last.fm/music/Skank/Siderado',tracks:{track:[{name:'Resposta',duration:'243','@attr':{rank:'1'}}]},tags:{tag:[{name:'rock'}]},image:[{'#text':'https://lastfm.freetls.fastly.net/i/u/300x300/test.png'}],wiki:{content:'História &lt;literal&gt; &amp; texto'},...changes}},{title:'Siderado',artist:'Skank',language:'pt'});
+test('Last.fm usa montagem comum e preserva história integral, faixas e atribuição no merge',()=>{
+ const story='Primeiro parágrafo &lt;literal&gt;.\n\nSegundo parágrafo. '+ 'x'.repeat(6000);
+ const source=new LastfmSource(album({wiki:{content:story}}));
+ const text=source.description();
+ assert.match(text,/Álbum: Siderado\nArtistas: Skank\nTags: rock\n\nSobre o álbum:/);
+ assert.ok(text.includes(source.snapshot().about));
+ assert.match(text,/\n\nFaixas:\n1\. Resposta — 4:03/);
+ assert.match(text,/\n\nFonte: Last.fm\nTermos da API Last.fm: https:\/\/www.last.fm\/api\/tos\nhttps:\/\/www.last.fm\/music\/Skank\/Siderado$/);
+ assert.ok(text.length>6000);source.dispose();
+});
 test('fonte complementar mantém edição/idioma, dados próprios e texto literal sem dupla limpeza',()=>{
  const source=new LastfmSource(album());assert.equal(source.id,'https://www.last.fm/music/Skank/Siderado#pt');assert.equal(isLastfmSourceId(source.id),true);
  assert.equal(source.snapshot().about,'História <literal> & texto');assert.equal(source.sections().find(s=>s.field==='tags').text,'Tags: rock');
@@ -46,17 +56,18 @@ test('prévia reduzida pelo usuário copia descrição longa com origem de ediç
  assert.equal(model.snapshot().fields.title.value,'Original');model.resetField('description');assert.equal(model.snapshot().fields.description.included,false);
 });
 
-test('Last.fm usa o mesmo fluxo de cinco cards e descrição automática, sem alterar reprodução',async()=>{
+test('Last.fm usa o fluxo comum de cards e descrição automática, sem alterar reprodução',async()=>{
  const {METADATA_SERVICE_IDS,STREAMINGS}=await import('../src/shared/contracts.ts');
  const model=new AlbumComposition();
  for(const service of METADATA_SERVICE_IDS.filter(s=>s!=='lastfm')){
+  if(service==='upcitemdb'){const {upcitemdbCandidate}=await import('../src/albums/upcitemdb-source.ts');const {parseUpcitemdbResponse}=await import('../src/streamings/upcitemdb.ts');model.addAlbum(upcitemdbCandidate(parseUpcitemdbResponse({code:'OK',total:1,offset:0,items:[{title:'Siderado',ean:'5099749207127'}]}).products[0]));continue;}
   const id=service==='spotify'?'A'.repeat(22):service==='youtube-music'?'MPREdemo':'401652079';
-  const url=service==='spotify'?'https://open.spotify.com/album/'+id:service==='youtube-music'?'https://music.youtube.com/browse/'+id:service==='deezer'?'https://www.deezer.com/album/'+id:'https://music.apple.com/br/album/test/'+id;
+  const url=service==='spotify'?'https://open.spotify.com/album/'+id:service==='youtube-music'?'https://music.youtube.com/browse/'+id:service==='discogs'?'https://www.discogs.com/release/'+id:service==='deezer'?'https://www.deezer.com/album/'+id:'https://music.apple.com/br/album/test/'+id;
   model.addAlbum({service,id,url,title:'Siderado',artists:[{id:'artist',name:'Skank'}]});
  }
- const candidate=lastfmCandidate(album());model.addAlbum(candidate);assert.equal(model.snapshot().cards.length,5);assert.equal(STREAMINGS.some(s=>s.id==='lastfm'),false);
+ const candidate=lastfmCandidate(album());model.addAlbum(candidate);assert.equal(model.snapshot().cards.length,METADATA_SERVICE_IDS.length);assert.equal(STREAMINGS.some(s=>s.id==='lastfm'),false);
  model.selectAlbum('lastfm');model.copyField('title');assert.equal(model.snapshot().fields.title.source.service,'lastfm');assert.ok(model.snapshot().cards.find(c=>c.album.service==='lastfm').description.sections.some(s=>s.field==='about'));
- assert.throws(()=>model.addAlbum(candidate));model.removeAlbum('lastfm');assert.equal(model.snapshot().cards.length,4);assert.equal(model.snapshot().fields.title.value,'Siderado');
+ assert.throws(()=>model.addAlbum(candidate));model.removeAlbum('lastfm');assert.equal(model.snapshot().cards.length,METADATA_SERVICE_IDS.length-1);assert.equal(model.snapshot().fields.title.value,'Siderado');
 });
 test('descrição Last.fm longa copia para revisão no formulário sem corte, antes da confirmação',()=>{
  const model=new AlbumComposition();model.addAlbum(lastfmCandidate(album({wiki:{content:'a'.repeat(6000)}})));model.selectAlbum('lastfm');model.copyField('description');assert.ok(model.changes().description.length>6000);
@@ -73,4 +84,33 @@ test('Sobre o álbum é opcional comum, aparece antes das faixas e pode trocar d
  assert.match(merge.text(),/História revisada/);assert.match(merge.text(),/Termos da API Last\.fm/);
  merge.setIncludeSources(false);assert.match(merge.text(),/Fonte do texto: Last.fm/);assert.match(merge.text(),/Termos da API Last\.fm: https:\/\/www\.last\.fm\/api\/tos/);
  merge.choose('spotify','about');assert.match(merge.text(),/Outro contexto/);assert.doesNotMatch(merge.text(),/Fonte do texto: Last.fm/);assert.equal(merge.result().sources.find(s=>s.field==='about').service,'spotify');
+});
+
+test('inclusão Last.fm oferece tags e soma durações conhecidas identificando parcialidade',()=>{
+ const data=album({tracks:{track:[{name:'Resposta',duration:'243'},{name:'Sem duração'}]}});
+ const result=lastfmDescription(lastfmCandidate(data));
+ assert.equal(result.manualFields.tags,'rock');
+ assert.equal(result.manualFields.length_of,'4');
+ assert.match(result.manualFieldNotes.length_of,/1 das 2 faixas/);
+ assert.match(result.manualFieldNotes.length_of,/parcial/);
+ const withoutDurations=lastfmDescription(lastfmCandidate(album({tracks:{track:[{name:'Faixa'}]}})));
+ assert.equal(withoutDurations.manualFields.length_of,undefined);
+});
+
+ test('Notas Last.fm preserva conteúdo original sem fonte ou termos acrescentados',()=>{
+ const result=lastfmDescription(lastfmCandidate(album()));
+ assert.equal(result.manualFields.notes,album().rawAbout);
+ const summary=lastfmDescription(lastfmCandidate(album({wiki:{summary:'Resumo original'}})));
+ assert.equal(summary.manualFields.notes,'Resumo original');
+ const absent=lastfmDescription(lastfmCandidate(album({wiki:{}})));
+ assert.equal(absent.manualFields.notes,undefined);
+ });
+
+
+test('Notas Last.fm conserva marcação, entidades e espaços ao passar pelo candidato',()=>{
+ const raw='  <p>História &amp; texto.</p>\r\n<a href="https://www.last.fm/">Read more</a>  ';
+ const candidate=lastfmCandidate(album({wiki:{content:raw}}));
+ assert.equal(lastfmDescription(candidate).manualFields.notes,raw);
+ const summary='  Resumo <b>literal</b>.\r\n';
+ assert.equal(lastfmDescription(lastfmCandidate(album({wiki:{summary}}))).manualFields.notes,summary);
 });

@@ -4,6 +4,7 @@ import { StreamingError } from "../albums/resolution.js";
 import { albumSearchTitle } from "../albums/album-search-title.js";
 import { normalizeProductCode, productCodesMatch, productCodeVariants } from "../albums/identifiers.js";
 import {albumArtworkVariants} from "../albums/album-artwork.js";
+import {formatAlbumDescription, spotifyDescription} from "../albums/album-description.js";
 
 export interface SpotifySearchEvent extends Partial<Omit<RequestFailure, "kind">> {
   readonly at: string;
@@ -332,6 +333,10 @@ export class SpotifyClient implements StreamingAdapter {
     const identifiers = object(object(data)?.["external_ids"]);
     const raw = (value: unknown): string | null => typeof value === "string" ? value.slice(0, 64) : null;
     const externalIds = {upc: raw(identifiers?.["upc"]), ean: raw(identifiers?.["ean"])};
+    if (Array.isArray(object(object(data)?.["tracks"])?.["items"])) {
+      try {album = {...album, description: formatAlbumDescription(spotifyDescription(album, data))};}
+      catch { /* Identifier matching remains usable when optional description data is malformed. */ }
+    }
     diagnostic?.({at: new Date(this.now()).toISOString(), kind: "album-details", endpoint, candidates: [album], externalIds});
     return {album, externalIds};
   }

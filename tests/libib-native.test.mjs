@@ -5,12 +5,12 @@ import {isLibibApplyResult,describeLibibApplyResult} from '../src/libib/libib-me
 
 const request={joinId:'101',libraryId:'202',field:'title',value:'Novo título',titleOverride:'Ordenação'};
 const classes=()=>{const values=new Set();return {add:x=>values.add(x),remove:x=>values.delete(x),contains:x=>values.has(x)};};
-function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHandler=false,description,descriptionMaxLength=5000,media="music"}={}){
- const handlers=new Map(),bodies=[];let selected,inputs=[],privateSaved;const privateItem={title:'Anterior',creators:['Anterior'],title_override:'Ordenação',...(description!==undefined?{description}:{})};
+function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHandler=false,description,descriptionMaxLength=5000,media="music",extraGroups={},extraValues={},extraLimit=-1}={}){
+ const handlers=new Map(),bodies=[];let selected,inputs=[],privateSaved;const privateItem={title:'Anterior',creators:['Anterior'],title_override:'Ordenação',...(description!==undefined?{description}:{}),...extraValues};
  const imageField={kind:'field',field:'image'},titleField={kind:'field',field:'title'},creatorField={kind:'field',field:'creators'},save={kind:'save',disabled:false,classList:classes()},close={classList:classes()};
  const form={querySelector:s=>inputs.find(input=>s.includes('"'+input.name+'"')),querySelectorAll:s=>s.includes('button')?[...inputs,save]:s.includes('input[name=')?inputs.filter(input=>s.includes('"'+input.name+'"')):inputs};
  const root={isConnected:true,dataset:{joinId:'101',libraryId:'202',itemType:media},getClientRects:()=>[1],
-  querySelector:s=>s==='#quick-edit-form'?form:s==='#jump-cover-save'?save:s.includes('data-key="title"')?titleField:s.includes('data-key="creators"')?creatorField:s.includes('data-key="image"')?imageField:s.includes('data-key="description"')&&description!==undefined?{kind:'field',field:'description'}:undefined,
+  querySelector:s=>s==='#quick-edit-form'?form:s==='#jump-cover-save'?save:s.includes('data-key="title"')?titleField:s.includes('data-key="creators"')?creatorField:s.includes('data-key="image"')?imageField:s.includes('data-key="description"')&&description!==undefined?{kind:'field',field:'description'}:Object.keys(extraGroups).find(key=>s.includes('data-key=\"'+key+'\"'))?{kind:'field',field:Object.keys(extraGroups).find(key=>s.includes('data-key=\"'+key+'\"'))}:undefined,
   querySelectorAll:()=>close.classList.contains('disabled')?[close]:[]};
  const roots=[root],listeners=new Map(),replies=[];
  const document={querySelectorAll:()=>roots,defaultView:{getComputedStyle:()=>({visibility:'visible'}),DataTransfer:class {items={add:file=>this.files.push(file)};files=[];}}};
@@ -23,6 +23,7 @@ function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHa
   trigger:()=>{
    if(target.kind==='field'){
     selected=target.field;inputs=[{name:selected,value:String(privateItem[selected]),disabled:false,...(selected==='description'?{tagName:'TEXTAREA',type:'textarea',readOnly:false,maxLength:descriptionMaxLength}:{})}];
+    if(extraGroups[selected])inputs=extraGroups[selected].map(name=>({name,value:privateItem[name],tagName:name==='notes'?'TEXTAREA':'INPUT',type:'text',readOnly:false,maxLength:extraLimit,isConnected:true,form,disabled:false,matches:()=>false,classList:classes()}));
     if(selected==='image')inputs=[{name:'image',type:'file',disabled:false,isConnected:true,form,classList:classes(),files:[]}];
     if(selected==='title')inputs.push({name:'title_override',value:privateItem.title_override,disabled:false});return;
    }
@@ -40,6 +41,41 @@ function setup({outcome='success',status=200,hold=false,raw,unrelated=false,noHa
  return {page,jquery,root,roots,get inputs(){return inputs;},save,close,handlers,bodies,replies,listeners,snapshot:()=>({item:structuredClone(privateItem),saved:privateSaved}),complete:()=>completion(),get xhr(){return capturedXHR;}};
 }
 const signal=()=>new AbortController().signal;
+
+test('extra usa opção nativa reconhecida, preserva campos não selecionados do grupo e atualiza cache privado',async()=>{
+ const values={publish_year:'2024',publish_month:'02',publish_day:'29'};
+ const v=setup({extraGroups:{published:Object.keys(values)},extraValues:values});
+ const result=await saveLibibNativeField(v.page,v.jquery,{joinId:'101',libraryId:'202',field:'extra',nativeField:'published',
+  value:{publish_year:'2025',publish_day:'28'},expectedValues:values},signal());
+ assert.equal(result.confirmed,true);
+ assert.deepEqual(v.bodies,[{join_id:'101',library_id:'202',item_type:'music',publish_year:'2025',publish_month:'02',publish_day:'28'}]);
+ assert.equal(v.snapshot().item.publish_month,'02');assert.equal(v.snapshot().saved,true);
+ assert.equal(v.snapshot().item.title,'Anterior');
+});
+test('extra recusa valores atuais diferentes, nomes internos, mídia e limites antes do envio',async()=>{
+ const cases=[{nativeField:'publisher',value:{publisher:'Novo'},expectedValues:{publisher:'Outro'}},
+  {nativeField:'publisher',value:{publisher:'12345'},expectedValues:{publisher:'Selo'}},
+  {nativeField:'publisher',value:{join_id:'201'},expectedValues:{join_id:'101'}},
+  {nativeField:'publisher',value:{ensemble:'Ator'},expectedValues:{ensemble:'Ator'}},
+  {nativeField:'publisher"] bad',value:{publisher:'Novo'},expectedValues:{publisher:'Selo'}}];
+ for(const extra of cases){
+  const v=setup({extraGroups:{publisher:['publisher']},extraValues:{publisher:'Selo'},extraLimit:4});
+  const result=await saveLibibNativeField(v.page,v.jquery,{joinId:'101',libraryId:'202',field:'extra',...extra},signal());
+  assert.equal(result.confirmed,false);assert.equal(result.writeMayHaveOccurred,false);assert.equal(v.bodies.length,0);
+ }
+});
+test('extra valida data composta do grupo antes de acionar Save',async()=>{
+ const values={publish_year:'2024',publish_month:'02',publish_day:'29'};
+ const v=setup({extraGroups:{published:Object.keys(values)},extraValues:values});
+ const result=await saveLibibNativeField(v.page,v.jquery,{joinId:'101',libraryId:'202',field:'extra',nativeField:'published',value:{publish_year:'2025'},expectedValues:values},signal());
+ assert.equal(result.code,'invalid-input');assert.equal(v.bodies.length,0);
+});
+test('payload alterado pelo handler após envio é incerto, nunca tratado como não enviado ou sucesso',async()=>{
+ const v=setup({extraGroups:{notes:['notes']},extraValues:{notes:'Original'}});
+ const result=await saveLibibNativeField(v.page,v.jquery,{joinId:'101',libraryId:'202',field:'extra',nativeField:'notes',value:{notes:' Nova '},expectedValues:{notes:'Original'}},signal());
+ assert.equal(v.bodies.length,1);assert.equal(v.bodies[0].notes,'Nova');
+ assert.equal(result.confirmed,false);assert.equal(result.writeMayHaveOccurred,true);assert.equal(result.code,'invalid-response');
+});
 
 test('usa o handler nativo uma vez e confirma após o cache privado ser atualizado',async()=>{
  const value=setup({unrelated:true});

@@ -2,6 +2,9 @@ import {descriptionText} from "../albums/album-description.js";
 import {ARTWORK_BYTE_LIMIT, imageFormat} from "../albums/album-artwork.js";
 import type {NativeSaveOutcome} from "./libib-native.js";
 import {isLibibEditError, type LibibEditClient, type LibibEditTarget} from "./libib-edit.js";
+import {MOVIE_MANUAL_FIELDS} from "../shared/manual-entry-fields.js";
+import {prepareQuickEditExtras, type QuickEditExtraGroup} from "./libib-quick-fields.js";
+import type {LibibItemFieldKey} from "./libib-item-fields.js";
 
 export interface AlbumMetadata {
   readonly title: string;
@@ -73,7 +76,8 @@ export async function applyLibibMetadata(
   return {title, creators};
 }
 
-export type SelectiveField = "title" | "creators" | "image" | "description";
+export type CoreSelectiveField = "title" | "creators" | "image" | "description";
+export type SelectiveField = CoreSelectiveField | LibibItemFieldKey;
 export interface LibibPatchResult {
   readonly fields: Partial<Record<SelectiveField, FieldSaveState>>;
   readonly nativeUpdated: boolean;
@@ -90,11 +94,18 @@ export async function validateArtworkFile(value: unknown): Promise<File> {
 }
 
 /** Validate the complete selection before the first write, then stop on any uncertain result. */
-export async function applyLibibPatch(value: unknown, save: (field: SelectiveField, value: string | File) => Promise<NativeSaveOutcome>): Promise<LibibPatchResult> {
+export async function applyLibibPatch(value: unknown, save: (field: CoreSelectiveField, value: string | File) => Promise<NativeSaveOutcome>, options: {
+  extraGroups?: readonly QuickEditExtraGroup[];
+  saveExtras?: (nativeField: string, values: Record<string, string>, expectedValues: Record<string, string>) => Promise<NativeSaveOutcome>;
+} = {}): Promise<LibibPatchResult> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Escolha os campos que deseja aplicar.");
   const patch = value as Record<string, unknown>, keys = Object.keys(patch);
-  if (!keys.length || keys.some(key => !["title", "artists", "artwork", "description"].includes(key) || patch[key] === undefined)) throw new Error("Escolha somente título, artistas, capa ou descrição.");
-  const values: Partial<Record<SelectiveField, string | File>> = {};
+  const extraKeys = options.extraGroups?.flatMap(group => group.fields.map(field => field.key)) ?? [];
+  if (!keys.length || keys.some(key => !["title", "artists", "artwork", "description", ...extraKeys].includes(key) || patch[key] === undefined)) throw new Error("Escolha somente os campos disponíveis para este item.");
+  const extraPatch = Object.fromEntries(keys.filter(key => extraKeys.includes(key as LibibItemFieldKey)).map(key => [key, patch[key]]));
+  const extras = prepareQuickEditExtras(options.extraGroups ?? [], extraPatch);
+  if (extras.length && !options.saveExtras) throw new Error("A gravação destes campos não está disponível.");
+  const values: Partial<Record<CoreSelectiveField, string | File>> = {};
   if (keys.includes("title")) {
     const title = patch["title"];
     if (typeof title !== "string" || !title.trim() || title.length > 512) throw new Error("Informe um título válido com até 512 caracteres.");
@@ -104,15 +115,17 @@ export async function applyLibibPatch(value: unknown, save: (field: SelectiveFie
   if (keys.includes("description")) values.description = descriptionText(patch["description"]);
   if (keys.includes("artwork")) values.image = await validateArtworkFile(patch["artwork"]);
   const fields: Partial<Record<SelectiveField, FieldSaveState>> = {};
-  const entries = Object.entries(values) as [SelectiveField, string | File][];
-  for (const [field] of entries) fields[field] = "not-saved";
-  for (const [field, value] of entries) {
+  const entries = Object.entries(values) as [CoreSelectiveField, string | File][];
+  const operations = [...entries.map(([field, value]) => ({fields: [field] as SelectiveField[], save: () => save(field, value)})),
+    ...extras.map(extra => ({fields: Object.keys(extra.values) as SelectiveField[], save: () => options.saveExtras!(extra.nativeField, extra.values, extra.expectedValues)}))];
+  for (const operation of operations) for (const field of operation.fields) fields[field] = "not-saved";
+  for (const operation of operations) {
     try {
-      const outcome = await save(field, value);
-      fields[field] = outcome.confirmed ? "saved" : outcome.writeMayHaveOccurred ? "unconfirmed" : "not-saved";
+      const outcome = await operation.save();
+      for (const field of operation.fields) fields[field] = outcome.confirmed ? "saved" : outcome.writeMayHaveOccurred ? "unconfirmed" : "not-saved";
       if (!outcome.confirmed) break;
     } catch (error) {
-      fields[field] = isLibibEditError(error) && !error.writeMayHaveOccurred ? "not-saved" : "unconfirmed";
+      for (const field of operation.fields) fields[field] = isLibibEditError(error) && !error.writeMayHaveOccurred ? "not-saved" : "unconfirmed";
       break;
     }
   }
@@ -123,10 +136,10 @@ export function isLibibPatchResult(value: unknown): value is LibibPatchResult {
   if (!value || typeof value !== "object") return false;
   const result = value as Record<string, unknown>, fields = result["fields"];
   return typeof result["nativeUpdated"] === "boolean" && !!fields && typeof fields === "object" && !Array.isArray(fields) &&
-    Object.keys(fields).length > 0 && Object.entries(fields).every(([key, state]) => ["title", "creators", "image", "description"].includes(key) && typeof state === "string" && ["saved", "not-saved", "unconfirmed"].includes(state));
+    Object.keys(fields).length > 0 && Object.entries(fields).every(([key, state]) => ["title", "creators", "image", "description", ...MOVIE_MANUAL_FIELDS.map(field => field.key)].includes(key) && typeof state === "string" && ["saved", "not-saved", "unconfirmed"].includes(state));
 }
 export function describeLibibPatchResult(result: LibibPatchResult): string {
-  const labels = {title: "Título", creators: "Artistas", image: "Capa", description: "Descrição"};
+  const labels: Record<string, string> = {...Object.fromEntries(MOVIE_MANUAL_FIELDS.map(field => [field.key, field.label])), title: "Título", creators: "Artistas", image: "Capa", description: "Descrição"};
   const states = {saved: "salvo", "not-saved": "não enviado ou não salvo", unconfirmed: "gravação sem confirmação"};
   const summary = Object.entries(result.fields).map(([field, state]) => `${labels[field as SelectiveField]}: ${states[state]}`).join(". ") + ".";
   return summary + (Object.values(result.fields).every(state => state === "saved")

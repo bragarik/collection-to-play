@@ -41,7 +41,7 @@ export function assessLibibCompatibility(observation: LibibObservation): readonl
 
 const codes = ["structure-recognized", "structure-changed", "structure-unverified", "request-failed", "response-invalid", "save-unconfirmed", "save-confirmed", "read-confirmed", "fields-filled", "edit-blocked"] as const;
 export type LibibDiagnosticCode = typeof codes[number];
-const editStages = ["load", "title", "creators", "image", "description", "fill"] as const;
+const editStages = ["load", "title", "creators", "image", "description", "extra", "fill"] as const;
 const editErrors = ["invalid-input", "invalid-context", "cancelled", "timeout", "network", "http", "invalid-response", "rejected"] as const;
 export interface LibibEditDiagnostic {
   readonly editor: "quick" | "full";
@@ -54,7 +54,7 @@ export function sanitizeLibibEditDiagnostic(value: unknown): LibibEditDiagnostic
   const event = object(value);
   const editor = event["editor"], stage = event["stage"], code = event["code"], errorCode = event["errorCode"], status = event["httpStatus"];
   if ((editor !== "quick" && editor !== "full") || !editStages.includes(stage as LibibEditDiagnostic["stage"])) return undefined;
-  const writing = editor === "quick" && (stage === "title" || stage === "creators" || stage === "image" || stage === "description");
+  const writing = editor === "quick" && (stage === "title" || stage === "creators" || stage === "image" || stage === "description" || stage === "extra");
   if (!(code === "save-confirmed" && writing || code === "save-unconfirmed" && writing ||
     code === "read-confirmed" && editor === "quick" && stage === "load" ||
     code === "fields-filled" && editor === "full" && stage === "fill" ||

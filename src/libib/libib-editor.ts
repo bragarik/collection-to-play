@@ -4,7 +4,10 @@ import {isSupportedCatalogUrl} from "../shared/contracts.js";
 import {LibibEditClient, LibibEditError} from "./libib-edit.js";
 import {isNativeSaveOutcome, type NativeSaveRequest, type NativeSaveOutcome} from "./libib-native.js";
 import {applyLibibMetadata, applyLibibPatch, describeLibibPatchResult, describeLibibApplyResult, prepareAlbumMetadata} from "./libib-metadata.js";
-import {readLibibFullEditor, fillLibibFullEditor, fillLibibFullEditorPatch} from "./libib-full-editor.js";
+import {readLibibFullEditor, fillLibibFullEditor, fillLibibFullEditorPatch, type LibibFullEditor} from "./libib-full-editor.js";
+import {libibItemFieldContext} from "./libib-item-fields.js";
+import {availableQuickEditGroups, quickEditFieldContext, type QuickEditExtraGroup} from "./libib-quick-fields.js";
+import {normalizeProductCode} from "../albums/identifiers.js";
 import {createLibibEditDiagnostics} from "./libib-edit-diagnostics.js";
 import type {LibibEditDiagnostic} from "./libib-diagnostics.js";
 
@@ -49,7 +52,7 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
     const full = root.matches("#edit-item-form");
     const diagnostics = createLibibEditDiagnostics(full ? "full" : "quick", options.recordDiagnostic);
     const movie = full ? readLibibFullEditor(root as HTMLFormElement, options.pageUrl(), true)?.media === "movie" : root.dataset["itemType"] === "movie";
-    const label = movie ? "Atualizar dados via TMDb" : "Atualizar dados via streaming";
+    const label = "Atualizar dados via streaming";
     const actionHost = document.createElement(full ? "span" : "li");
     const action = mountEditorAction(actionHost, full, label);
     const host = document.createElement("div");
@@ -74,6 +77,8 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
     let session = "";
     let descriptionBaseline: string | undefined;
     let descriptionMaxLength = DESCRIPTION_LIMIT;
+    let fullContext: LibibFullEditor | undefined;
+    let quickGroups: readonly QuickEditExtraGroup[] = [];
     let applying = false;
     const current = (): boolean => identity(root) === key && dialog.open;
     const client = new LibibEditClient({pageUrl: options.pageUrl, isCurrent: current, media: movie ? "movie" : "music"});
@@ -115,6 +120,8 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
     const reset = (): void => {
       controller?.abort(); controller = undefined;
       session = "";descriptionBaseline = undefined;descriptionMaxLength = DESCRIPTION_LIMIT;
+      fullContext = undefined;
+      quickGroups = [];
       ui.update({frameSrc: "about:blank", frameHidden: true});
     };
     const hide = (): void => {if (dialog.open) dialog.close(); reset();};
@@ -132,7 +139,12 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
       try {
         const context = full ? readLibibFullEditor(root as HTMLFormElement, options.pageUrl(), true) : undefined;
         if (full && !context) throw new Error("A edição mudou. Reabra a busca neste item.");
-        const snapshot = context ? {title: context.title.value, artist: context.creators.value, description: context.description?.value, maxLength: context.description?.maxLength} : await diagnostics.read(() => client.load({joinId: root.dataset["joinId"]!, libraryId: root.dataset["libraryId"]!}, signal)).then(item => ({title: item.title, artist: item.creators.join(", "), description: item.description, maxLength: item.descriptionMaxLength}));
+        fullContext = context;
+        const snapshot = context ? {title: context.title.value, artist: context.creators.value, description: context.description?.value, maxLength: context.description?.maxLength,
+          ean: normalizeProductCode(context.extraFields.get("ean_isbn13")?.value), upc: normalizeProductCode(context.extraFields.get("upc_isbn10")?.value)} : await diagnostics.read(() => client.load({joinId: root.dataset["joinId"]!, libraryId: root.dataset["libraryId"]!}, signal)).then(item => {
+          quickGroups = availableQuickEditGroups(item.extraGroups ?? [], root);
+          return {title: item.title, artist: item.creators.join(", "), description: item.description, maxLength: item.descriptionMaxLength, ean: item.ean, upc: item.upc};
+        });
         descriptionMaxLength = descriptionLimit(snapshot.maxLength);
         descriptionBaseline = typeof snapshot.description === "string" && snapshot.description.length <= 200_000 ? snapshot.description : undefined;
         if (signal.aborted || !dialog.open || identity(root) !== key) {hide(); return;}
@@ -145,6 +157,8 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
         url.searchParams.set("service", options.service());
         url.searchParams.set("title", snapshot.title);
         url.searchParams.set("artist", snapshot.artist);
+        if (snapshot.ean) url.searchParams.set("ean", snapshot.ean);
+        if (snapshot.upc) url.searchParams.set("upc", snapshot.upc);
         url.searchParams.set("source", options.pageUrl());
         ui.update({frameSrc: url.href, frameHidden: false, statusHidden: true});
       } catch (error) {
@@ -160,6 +174,7 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
       const message = data as Record<string, unknown>;
       if (message["type"] === "collection-to-play:description-context-request" && message["session"] === session && current()) {
         frame.contentWindow?.postMessage({type: "collection-to-play:description-context", session, available: descriptionBaseline !== undefined,
+          ...(fullContext ? libibItemFieldContext(fullContext.extraFields) : quickEditFieldContext(quickGroups)),
           ...(descriptionBaseline !== undefined ? {description: descriptionBaseline, maxLength: descriptionMaxLength} : {})}, `${origin.protocol}//${origin.host}`);return;
       }
       if (message["type"] !== "collection-to-play:apply-metadata" || message["session"] !== session ||
@@ -182,7 +197,7 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
           }
         }
         if (full && message["patch"] !== undefined) {
-          const context = readLibibFullEditor(root as HTMLFormElement, options.pageUrl(), true);
+          const context = fullContext;
           if (!context) throw new Error("A edição mudou. Reabra a busca neste item.");
           await diagnostics.fillAsync(() => fillLibibFullEditorPatch(context, options.pageUrl(), message["patch"], {isCurrent: current, ...(replacement ? {descriptionReplacement: replacement} : {}),
             ...(controller ? {signal: controller.signal} : {})}));
@@ -200,6 +215,10 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
             const {directors, ...rest} = fields;
             quickPatch = {...rest, ...("directors" in fields ? {artists: directors} : {})};
           }
+          const hasExtras = quickPatch && typeof quickPatch === "object" && Object.keys(quickPatch).some(key => !["title", "artists", "artwork", "description"].includes(key));
+          const freshGroups = hasExtras ? availableQuickEditGroups((await diagnostics.read(() => client.load(target, signal))).extraGroups ?? [], root)
+            .filter(group => quickGroups.some(original => original.nativeField === group.nativeField &&
+              JSON.stringify(original.fields.map(field => field.key).sort()) === JSON.stringify(group.fields.map(field => field.key).sort()))) : [];
           const result = await applyLibibPatch(quickPatch, async (field, value) => {
             if (!current() || session !== message["session"] || signal?.aborted) return {confirmed: false, writeMayHaveOccurred: false, code: "cancelled"};
             let request: NativeSaveRequest;
@@ -215,7 +234,12 @@ export function createLibibEditor(options: EditorOptions): {sync(): void; stop()
             const outcome = await saveNative(request, signal);
             diagnostics.native(field, outcome);
             return outcome;
-          });
+          }, {extraGroups: freshGroups, saveExtras: async (nativeField, value, expectedValues) => {
+            if (!current() || session !== message["session"] || signal?.aborted || !availableQuickEditGroups(freshGroups, root).some(group => group.nativeField === nativeField)) return {confirmed: false, writeMayHaveOccurred: false, code: "cancelled"};
+            const outcome = await saveNative({...target, field: "extra", nativeField, value, expectedValues}, signal);
+            diagnostics.native("extra", outcome);
+            return outcome;
+          }});
           if (current() && session === message["session"]) {
             reply({patchResult: result}); ui.update({status: describeLibibPatchResult(result)});
             if (Object.values(result.fields).every(state => state === "saved")) {hide(); action.focus();}

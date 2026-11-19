@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createPkce, SpotifyClient, spotifySearchUrl } from "../src/streamings/spotify.ts";
 import { searchAlbums } from "../src/albums/resolution.ts";
+import {AlbumComposition} from '../src/albums/album-composition.ts';
 
 const redirect = "https://ajjfighekaafaklemaophkbfckidiphl.chromiumapp.org/spotify";
 const query = { title: "Discovery", artist: "Daft Punk", source: { catalogId: "libib", itemUrl: "https://www.libib.com/library" } };
@@ -312,6 +313,17 @@ test("UPC vem antes do texto e é conferido nos detalhes completos do álbum", a
   assert.equal(result.status, "resolved");
   assert.equal(result.reason, "identifier");
   assert.equal(result.album.artists[0].name, "Shaman");
+});
+test('detalhes já consultados para conferir UPC geram descrição automática sem repetir consulta',async()=>{
+ const details={...payload(),external_ids:{upc:'036000291452'},label:'Gravadora',genres:['Rock'],release_date:'2001-03-12',total_tracks:1,
+  tracks:{items:[{name:'Faixa',track_number:1,disc_number:1,duration_ms:180000}],next:null}};
+ const value=setup({session:connected(),fetch:url=>url.pathname==='/v1/search'?page([payload()]):Response.json(details)});
+ const result=await searchAlbums(value.client,{...query,upc:'036000291452'});
+ assert.equal(result.status,'resolved');assert.equal(value.calls.length,2);
+ assert.match(result.album.description.text,/Gravadora: Gravadora/);assert.equal(result.album.description.listedTracks,1);
+ const model=new AlbumComposition(undefined,{loadDescription:()=>assert.fail('Não deve consultar novamente')});
+ model.addAlbum(result.album);assert.ok(model.snapshot().cards[0].description);
+ assert.equal(await model.loadDescription('spotify'),true);assert.equal(value.calls.length,2);model.dispose();
 });
 
 test("tenta representação com zero à esquerda quando a UPC original não retorna resultado", async () => {

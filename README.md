@@ -8,7 +8,7 @@ Licença: GNU GPL versão 3; texto completo em [LICENSE](LICENSE) e autoria em [
 
 ## Estado atual
 
-Versão local: **0.4.1**.
+Versão local: **0.5.0**.
 
 Integrações implementadas: Libib + Spotify, YouTube Music, iTunes e Deezer.
 Catálogo suportado: https://www.libib.com/library e seus subcaminhos.
@@ -89,6 +89,10 @@ título, artista e códigos disponíveis. Itens com esses mesmos dados podem ser
 indistinguíveis. O projeto não presume um ID interno do Libib que não foi verificado.
 
 ### Compor dados de um álbum
+
+Os botões **+** dos dados da fonte mostram ✓ quando o campo já foi usado daquele
+álbum, ou uma seta de troca em amarelo quando foi usado de outra fonte. A escolha
+pode ser substituída; restaurar ou desmarcar o campo atualiza o indicador.
 
 Na edição rápida ou em **Detalhes → Editar**, use **Atualizar dados via streaming**.
 Na edição rápida, a opção fica no início da lista; na completa, imediatamente à
@@ -194,6 +198,8 @@ antes de abrir o modal e reutiliza as já geradas. Se um serviço falhar, você 
 continuar com as outras fontes; se todos falharem, tente novamente.
 
 No modal, use o botão de cada dado ou **Usar todos os dados** de uma fonte.
+À esquerda, **Usar dados pendentes** adiciona somente os atributos ainda sem
+escolha, preservando os dados já selecionados de qualquer fonte.
 Escolher outro serviço para o mesmo dado substitui a escolha anterior. A lista de
 faixas é selecionada inteira, sem misturar automaticamente edições. Você pode
 editar livremente o texto final; as edições manuais são preservadas ao escolher
@@ -531,14 +537,14 @@ Em **Credencial Last.fm** nas configurações, salve sua própria API key, subst
 ou remova-a. Ela fica localmente neste navegador, sem Shared Secret ou login Last.fm.
 
 Na tela **Compor dados do álbum**, a seleção **Serviços** inclui Spotify,
-YouTube Music, iTunes, Deezer e Last.fm. Escolha Last.fm, informe Álbum e Artista,
+YouTube Music, iTunes, Deezer, Last.fm, Discogs e UPCitemdb. Escolha Last.fm, informe Álbum e, opcionalmente, Artista,
 selecione Português ou Inglês e use **Buscar álbuns**. O clique no serviço já inicia
 a busca se ele ainda não tiver um álbum adicionado. O idioma retornado pode ser
 diferente do solicitado; não há troca automática de idioma.
 
 Adicione o resultado aos mesmos cards dos outros serviços: até um álbum por
-serviço, totalizando cinco. Use os botões **+** para copiar título, artista, capa
-ou descrição. A descrição Last.fm já fica disponível a partir da busca, incluindo
+serviço, totalizando seis. Use os botões **+** para copiar título, artista, capa
+ou descrição. A descrição Last.fm fica disponível ao adicionar o álbum, incluindo
 história quando fornecida; não precisa gerar novamente. Texto acima do limite
 é mantido para revisão no formulário e precisa ser reduzido antes de aplicar.
 Nada é salvo automaticamente no Libib.
@@ -575,7 +581,7 @@ Em **Configurações → Credencial TMDb**, salve sua API key ou seu token de le
 A credencial fica no armazenamento local do navegador. O campo é esvaziado depois
 de salvar e permite substituir ou remover a credencial.
 
-No Libib, abra a edição de um item de Vídeo e escolha **Atualizar dados via TMDb**.
+No Libib, abra a edição de um item de Vídeo e escolha **Atualizar dados via streaming**.
 Busque o título, adicione uma obra e copie os campos desejados para **Dados para o
 Libib**. Título, Diretores, Descrição e Capa são selecionáveis. Diretores vêm dos
 créditos de direção da obra. A capa corresponde ao pôster fornecido pelo TMDb.
@@ -590,7 +596,234 @@ dados** salva imediatamente os campos marcados pelo handler nativo do Libib.
 Se a busca original vier vazia e o título terminar com Blu-ray, DVD ou VHS,
 a extensão tenta também o título sem esse sufixo. O diagnóstico guarda as
 últimas vinte ocorrências, com termo de busca, idioma, etapa, duração, HTTP e
-quantidade de resultados. Pode ser exportado em **Configurações → Credencial
-TMDb → Exportar diagnóstico TMDb**. O arquivo não contém a credencial.
+quantidade de resultados. Pode ser exportado em **Configurações → Diagnóstico de busca → Exportar log da busca**. O arquivo não contém a credencial.
 
 This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+
+## Entrada manual de vídeos
+
+Na Entrada manual do Libib, selecione a coleção e o tipo Filme. Quando os campos
+carregarem, use **Buscar dados no TMDb**. O modal permite escolher a obra e revisar
+os dados antes de **Preencher campos**. Confira o formulário e clique em **Enviar**
+no Libib para cadastrar o item.
+
+Os campos adicionais incluem atores, estúdio, data, identificadores, proporção de
+tela, duração, discos e dados pessoais de organização. O TMDb fornece dados da obra;
+confira produtoras e data em relação à edição física. EAN/UPC, formato de tela e
+quantidade de discos são preenchidos manualmente. Valores não selecionados
+permanecem no formulário. Se mudar a coleção ou o tipo, reabra a busca.
+
+Para Música, selecione o tipo **Música** e use **Buscar dados nos serviços**.
+O mesmo modal da edição de álbuns permite buscar nas fontes configuradas, copiar
+campos individualmente ou com **+ todos** e combinar descrições. Os campos extras
+da entrada manual também aparecem em Dados para o Libib.
+
+Estúdio/gravadora, data, EAN/UPC e duração podem ser copiados quando fornecidos.
+A duração é arredondada para minutos inteiros, conforme o campo do Libib.
+Confira a edição física antes de substituir códigos ou lançamento. O iTunes também pode fornecer a quantidade de discos e o preço da loja digital
+em BRL, com aviso para conferir os valores da edição física. O Last.fm oferece tags
+e a soma das durações conhecidas, indicando quantas faixas foram usadas e que a
+lista pode ser parcial. Esses dados podem ser copiados por campo ou com **+ todos**.
+Discos, preço, tags, grupo e notas também admitem preenchimento manual. Depois de
+**Preencher campos**, revise e use **Enviar** no Libib.
+
+
+Na edição de itens existentes de Música/Vídeo, os campos extras disponíveis no
+Libib também aparecem em **Dados para o Libib**. Copiar de outra fonte substitui
+o mesmo campo no rascunho; o botão de restauração recupera seu valor original.
+Na edição completa, **Preencher campos** prepara os valores para você salvar no
+Libib. Na edição pelo lápis, **Aplicar dados** salva os campos marcados pelo
+mecanismo nativo. Campos e grupos não reconhecidos não são oferecidos; uma
+falha interrompe a sequência e informa quais gravações foram confirmadas.
+
+
+## Discogs como fonte alternativa
+
+Em **Configurações → Credencial Discogs**, salve seu token pessoal, gerado nas
+[configurações de desenvolvedor do Discogs](https://www.discogs.com/settings/developers).
+O campo é esvaziado após salvar. Você pode substituir ou remover o token. O diagnóstico entra no log comum em
+**Configurações → Diagnóstico de busca → Exportar log da busca**.
+
+Na edição e inclusão manual de Música, Discogs aparece em **Serviços**, junto às
+fontes existentes. Em Vídeo, fica ao lado do TMDb e atende DVDs, Blu-rays e outros
+formatos de vídeo musical catalogados no Discogs. É possível manter um card de
+cada serviço e copiar campos de fontes diferentes. Ao adicionar pelo menos duas fontes
+em Vídeo (TMDb, Discogs, UPCitemdb ou Last.fm), **Combinar descrições** permite revisar
+os dados dos serviços escolhidos.
+
+Informe EAN/UPC para buscar primeiro pelo código. Se a consulta por código vier
+vazia e houver título, a busca usa título e artista. Os resultados mostram país,
+formato, ano e catálogo para ajudar a escolher a edição física. O botão para
+adicionar consulta os detalhes da edição selecionada. Nenhuma edição é escolhida
+automaticamente. Os códigos presentes no formulário só mudam quando você seleciona
+a cópia e o preenchimento desses campos.
+
+O Discogs fornece dados como título, artistas, lançamento, selo, códigos, faixas,
+formato, país, catálogo e quantidade de discos quando disponíveis. Diretores são
+oferecidos somente com crédito explícito de direção de filme ou vídeo.
+Quando presentes, as notas originais ficam disponíveis para copiar no campo
+**Notas**, exatamente como recebidas, sem título, fonte, link ou crédito acrescentado.
+A descrição Discogs é montada apenas com os dados
+estruturados, sem repetir essas notas no texto ou no merge. Last.fm também oferece
+Sobre o álbum para copiar em Notas; TMDb oferece a sinopse. Notas preserva o texto
+original de cada serviço, inclusive espaços e marcação recebida. Esses dois serviços
+mantêm esses textos disponíveis na descrição. Nada é aplicado ao Libib sem sua
+seleção; os textos vêm das consultas já realizadas.
+**Miniaturas do Discogs aparecem apenas nos resultados da pesquisa**, com crédito
+e link da edição. Elas ajudam a identificar o exemplar e não são oferecidas como
+capa para copiar ao Libib, inclusive em “+ todos”. Use as outras fontes ou o upload
+manual do Libib para preencher a capa.
+
+Os metadados de catálogo usados são classificados como CC0 nos
+[Termos da API Discogs](https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use).
+Imagens são dados restritos e não são copiadas. Crédito e link para a edição
+acompanham os dados. Não mantemos cache persistente das respostas da API.
+Requisições são espaçadas, respeitam o limite informado pela API e bloqueiam
+novas tentativas durante o Retry-After de uma resposta HTTP 429. O diagnóstico
+guarda até cinquenta eventos com etapa, duração, HTTP e contagem, sem credencial,
+URL autenticada ou corpo de resposta.
+
+This application uses Discogs’ API but is not affiliated with, sponsored or
+endorsed by Discogs. ‘Discogs’ is a trademark of Zink Media, LLC.
+
+
+A exportação comum inclui `searchByService` com os registros disponíveis de Spotify,
+YouTube Music, iTunes, Deezer, Last.fm, TMDb, Discogs e UPCitemdb. Os grupos de capa e descrição
+continuam em `artworkByService` e `descriptionByService`. As credenciais ficam fora
+do relatório. O mesmo botão exporta os dados de Música e Vídeo.
+
+
+No Last.fm, com Artista vazio, a busca usa apenas o título e mostra resultados
+para escolher, incluindo coletâneas como **Various Artists**. Os detalhes são
+consultados ao adicionar o resultado selecionado, no idioma escolhido. Com
+Artista preenchido, a consulta direta por álbum/artista é mantida.
+
+
+Spotify, Discogs e UPCitemdb compartilham o campo **EAN ou UPC (opcional)** no modal.
+Quando informado, o código é enviado antes da busca por título/artista. A busca
+automática aguarda os dados do item; códigos conhecidos podem ser usados na
+consulta mesmo quando o Libib não disponibiliza seu campo para edição. Ao mudar
+para um serviço sem busca por código implementada, EAN/UPC não são enviados.
+
+Quando uma consulta já traz os dados usados na descrição, a extensão monta o
+texto automaticamente. Isso também vale para detalhes do Spotify obtidos durante
+a conferência de EAN/UPC. **Gerar descrição** permanece para os casos que exigem
+uma consulta adicional. As observações dos campos copiados aparecem uma vez na
+área da fonte e uma vez junto ao respectivo campo em Dados para o Libib.
+
+
+Em Música e Vídeo, **+ Pendentes**, à esquerda de **+ todos**, copia somente
+os atributos da fonte selecionada cujo botão individual ainda mostra **+**.
+Campos com confirmação ou substituição são preservados, inclusive os reconhecidos
+como iguais no Libib. Sem atributos disponíveis para adicionar, o botão fica
+desabilitado. A ação preenche apenas o rascunho.
+
+Nos cards de Música e Vídeo, **Mais dados disponíveis** indica que a fonte
+oferece algum campo disponível em Dados para o Libib que ainda não foi selecionado
+nem reconhecido como igual ao valor já cadastrado.
+Ao copiar esse atributo de qualquer serviço, ele deixa de contar como pendência
+em todos os cards. Copiar todos os dados, desmarcar ou restaurar um campo atualiza
+a etiqueta. Campos ausentes ou indisponíveis no formulário não entram na indicação.
+
+
+O botão de lupa junto aos campos de **Dados para o Libib** leva o valor de volta
+para a busca: título e artistas em Música; título em Vídeo. EAN/UPC também têm
+esse atalho quando o serviço selecionado aceita códigos (Spotify/Discogs/UPCitemdb em
+Música e Discogs/UPCitemdb em Vídeo). O botão apenas preenche a busca; clique em Buscar para
+consultar. O rascunho permanece preenchido e valores vazios desabilitam o atalho.
+
+
+Durante a busca, cartões animados antecipam o formato dos resultados em Música
+e Vídeo. Eles desaparecem quando a consulta termina, inclusive em caso de erro.
+Ao carregar mais resultados, os itens já recebidos permanecem visíveis.
+
+
+Ao adicionar álbuns/vídeos, cada campo de texto é comparado com o valor original
+do Libib. A primeira fonte que corresponder, na ordem de inclusão, fica verde nesse
+campo; as outras fontes ficam amarelas. Um campo ausente ou diferente em um card
+anterior não impede a comparação dos seguintes. Campos diferentes ou vazios continuam com +. Essa comparação não seleciona
+campos para salvar. A cópia explícita continua podendo trocar a fonte. O mesmo
+comportamento vale para uma entrada manual que já esteja preenchida; vazios não
+são reconhecidos. A capa permanece com seleção manual, sem comparação automática.
+
+
+## UPCitemdb em Música e Vídeo
+
+Em **Serviços**, escolha **UPCitemdb** para buscar produtos por EAN/UPC ou texto,
+sem cadastrar chave. Um código preenchido permite buscar com Álbum ou Vídeo em branco.
+A fonte usa o plano gratuito, com consultas limitadas; aguarde a busca e evite
+repetições desnecessárias. Resultados adicionais podem ser carregados quando a
+fonte oferecer outra página.
+
+Os resultados mostram título, marca/modelo, categoria, códigos e link da fonte.
+Confira a edição física: marca não é artista nem estúdio, categorias podem estar
+erradas e buscar por título não confirma o código do seu exemplar. O card oferece
+título, descrição automática, EAN/UPC e capa quando disponíveis. Artista, diretores, elenco, estúdio,
+data e outros dados não fornecidos permanecem como estão no Libib, inclusive ao
+usar **+ todos**. Os códigos só mudam no rascunho quando você os copia explicitamente.
+Marca/Modelo/Categoria também podem ser escolhidos no merge da descrição.
+
+Imagens HTTPS passam pelo mesmo carregamento/validação das outras capas. Uma
+origem que bloqueie o acesso pode impedir a cópia da imagem; os demais dados
+continuam utilizáveis. Imagens do Discogs permanecem excluídas da cópia. Nenhuma
+permissão para todos os sites foi adicionada. UPCitemdb não é opção de reprodução.
+Disponível na edição completa, pelo lápis e na inclusão manual de Música e Vídeo.
+Em Vídeo, complementa TMDb e Discogs, inclusive quando essas fontes não estão
+configuradas. A capa copiada permanece no rascunho mesmo após remover o card;
+aplicar reutiliza o arquivo carregado. Se a imagem falhar, a tentativa pelo botão
+da capa não refaz a busca do produto.
+
+
+## Last.fm em Vídeo
+
+Last.fm também aparece em **Serviços** na edição completa, pelo lápis e na inclusão
+manual de Vídeo. Usa a mesma API key configurada para Música. Pesquise pelo título
+do show e, opcionalmente, pelo artista/banda; escolha Português ou Inglês para o
+texto retornado. Sem artista, a pesquisa permite carregar mais resultados.
+
+Adicione o resultado para aproveitar título, capa disponível, descrição com faixas,
+Notas originais e tags nos campos existentes. **+ Pendentes**, **+ todos** e
+**Combinar descrições** funcionam com essa fonte. Os dados só são levados ao Libib
+após revisão e aplicação explícita.
+
+O Last.fm é uma fonte complementar para shows musicais: o resultado não confirma
+a edição DVD/Blu-ray. O artista/banda não preenche Diretores, e a soma das durações
+das faixas não preenche a duração do vídeo.
+
+## Ler código de barras em Música e Vídeo
+
+Na edição completa, pelo lápis e na inclusão manual de Música e Vídeo, o botão de leitor
+junto ao código abre a câmera. Se ela não estiver disponível ou o navegador negar
+o acesso, os botões da página passam a oferecer foto. Você também pode escolher
+**Usar foto** no leitor ou tentar a câmera novamente. A leitura é feita localmente.
+
+Na câmera, mantenha todas as barras dentro da mira central, na horizontal e com
+margem nas laterais. Ajuste a distância para manter a imagem nítida: somente a
+área da mira é enviada ao decodificador. Fotos continuam sendo lidas por inteiro.
+
+Confira ou corrija o código e clique em **Usar código**. Na busca, ele apenas
+preenche **EAN ou UPC** e limpa os resultados/paginação anteriores: clique em
+**Buscar álbuns** ou **Buscar vídeos** para consultar. Esse botão aparece nas fontes que aceitam código
+(Spotify, Discogs e UPCitemdb em Música; Discogs e UPCitemdb em Vídeo).
+
+No rascunho, os botões aparecem somente nos campos EAN/UPC disponíveis no formulário
+e respeitam seus limites. Confirmar a leitura preenche e seleciona somente esse
+campo para aplicação; os demais permanecem como estavam. EAN/UPC equivalentes
+são adaptados ao campo preservando os zeros necessários. Um EAN sem equivalente
+UPC-A não pode preencher UPC. **Restaurar** recupera o valor original.
+
+Cancelar a leitura não altera o campo. A câmera é encerrada ao reconhecer o código
+para revisão, escolher foto ou fechar o leitor. O preenchimento no Libib continua
+pelo botão de aplicação do editor; na edição rápida, aplicar salva os campos
+marcados.
+
+
+Se o leitor informar que o **sistema operacional bloqueou a câmera**, a permissão
+do site no Chrome pode já estar concedida. Verifique também a proteção de webcam
+do antivírus: no teste real, o ESET bloqueava o acesso. No Windows, pressione **Win + R**,
+execute `ms-settings:privacy-webcam` e confira **Acesso à câmera** e
+**Permitir que aplicativos da área de trabalho acessem sua câmera**. Volte ao
+leitor e clique em **Tentar câmera novamente**. A alternativa por foto continua
+disponível. Referências: [permissões da câmera no Windows](https://support.microsoft.com/pt-br/windows/privacy/manage-app-permissions-for-a-camera-in-windows)
+e [atalho das configurações](https://learn.microsoft.com/pt-br/windows/apps/develop/camera/camera-privacy-setting).

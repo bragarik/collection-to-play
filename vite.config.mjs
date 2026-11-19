@@ -14,6 +14,12 @@ export default defineConfig({
     preact(),
     tailwindcss(),
     crx({manifest: {...manifest, version: pkg.version}, contentScripts: {standaloneFiles: ["entrypoints/libib-native-entry.ts"]}}),
+    {name: "barcode-decoder", buildStart() {
+      this.emitFile({type: "chunk", id: resolve(import.meta.dirname, "src/barcodes/barcode-decoder.ts"),
+        fileName: "barcode-decoder.js", preserveSignature: "strict"});
+      this.emitFile({type: "chunk", id: resolve(import.meta.dirname, "src/components/barcode-reader.tsx"),
+        fileName: "barcode-reader.js", preserveSignature: "strict"});
+    }},
     {name: "licenses", generateBundle() {
       for (const fileName of ["LICENSE", "NOTICE.txt"]) this.emitFile({type: "asset", fileName, source: readFileSync(resolve(import.meta.dirname, fileName))});
     }},

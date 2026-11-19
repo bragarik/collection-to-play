@@ -1,14 +1,22 @@
 import {isLastfmSourceId} from "./lastfm.js";
+import {normalizeProductCode} from "../albums/identifiers.js";
 import {METADATA_SERVICE_IDS, type AlbumCandidate, type MetadataSearchInput, type MetadataSearchReply, type MetadataServiceId, type MetadataServicesReply} from "../shared/contracts.js";
 import {isValidCandidate, StreamingError} from "../albums/resolution.js";
 
 export function isMetadataService(value: unknown): value is MetadataServiceId {
   return METADATA_SERVICE_IDS.some(service => service === value);
 }
+export function metadataUsesProductCode(service: MetadataServiceId): boolean {return service === "spotify" || service === "discogs" || service === "upcitemdb";}
+export function metadataProductCode(service: MetadataServiceId, value: string): {upc?: string; ean?: string} {
+  if (!metadataUsesProductCode(service) || !value.trim()) return {};
+  const code = value.trim();
+  return code.replace(/[\s-]/g, "").length === 12 ? {upc: code} : {ean: code};
+}
 export function isMetadataAlbumId(service: MetadataServiceId, value: unknown): value is string {
+  if (service === "upcitemdb") return typeof value === "string" && value.length === 13 && normalizeProductCode(value) === value;
   if(service === "lastfm")return isLastfmSourceId(value);
   return typeof value === "string" && (service === "spotify" ? /^[a-zA-Z0-9]{22}$/ :
-    service === "apple-music" || service === "deezer" ? /^[1-9]\d{0,15}$/ : /^MPRE[a-zA-Z0-9_-]{4,200}$/).test(value);
+    service === "discogs" || service === "apple-music" || service === "deezer" ? /^[1-9]\d{0,15}$/ : /^MPRE[a-zA-Z0-9_-]{4,200}$/).test(value);
 }
 export function metadataQueryKey(query: MetadataSearchInput): string {
   return JSON.stringify([query.title.trim(), query.artist.trim(), query.sourceUrl, query.upc ?? "", query.ean ?? "", query.language ?? ""]);
@@ -52,6 +60,7 @@ export class MetadataSearchSession {
     if (service !== this.selected) {this.selected = service; this.invalidate();}
   }
   invalidate(): void {this.revision++;}
+  clearResults(): void {this.invalidate();this.results.delete(this.selected);}
   snapshot(service = this.selected): MetadataSearchState {
     return structuredClone(this.results.get(service) ?? {albums: []});
   }

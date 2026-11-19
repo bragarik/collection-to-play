@@ -169,5 +169,22 @@ test("cancelamento antes do campo e exceção incerta são reportados sem sucess
 
 test("contrato seletivo aceita apenas campos conhecidos e estados escalares", () => {
   assert.equal(isLibibPatchResult({fields:{image:'saved'},nativeUpdated:true}),true);
-  for(const value of [null,{fields:{},nativeUpdated:false},{fields:{notes:'saved'},nativeUpdated:true},{fields:{title:['saved']},nativeUpdated:true},{fields:{title:'saved'}}]) assert.equal(isLibibPatchResult(value),false);
+  for(const value of [null,{fields:{},nativeUpdated:false},{fields:{join_id:'saved'},nativeUpdated:true},{fields:{title:['saved']},nativeUpdated:true},{fields:{title:'saved'}}]) assert.equal(isLibibPatchResult(value),false);
+});
+test('extras do mesmo grupo são gravados uma vez com resultado por campo e preservação dos demais',async()=>{
+ const fields=[{key:'publish_year',value:'2024',maxLength:4},{key:'publish_month',value:'02',maxLength:2},{key:'publish_day',value:'29',maxLength:2}];
+ const groups=[{nativeField:'published',fields}];
+ const calls=[];
+ const result=await applyLibibPatch({publish_year:'2025',publish_day:'28'},()=>assert.fail('Campo básico não escolhido'),{extraGroups:groups,saveExtras:async(...args)=>{calls.push(args);return {confirmed:true,writeMayHaveOccurred:true};}});
+ assert.deepEqual(calls,[['published',{publish_year:'2025',publish_day:'28'},{publish_year:'2024',publish_month:'02',publish_day:'29'}]]);
+ assert.deepEqual(result.fields,{publish_year:'saved',publish_day:'saved'});assert.equal(isLibibPatchResult(result),true);
+ assert.match(describeLibibPatchResult(result),/Ano: salvo/);
+ const uncertain=await applyLibibPatch({publish_year:'2025',publish_day:'28',notes:'Nota'},()=>assert.fail(),{extraGroups:[...groups,{nativeField:'notes',fields:[{key:'notes',value:'Original',maxLength:100}]}],saveExtras:async()=>({confirmed:false,writeMayHaveOccurred:true,code:'network'})});
+ assert.deepEqual(uncertain.fields,{publish_year:'unconfirmed',publish_day:'unconfirmed',notes:'not-saved'});
+});
+test('extra inválido impede inclusive campos básicos de serem gravados',async()=>{
+ const extraGroups=[{nativeField:'price',fields:[{key:'price',value:'1',maxLength:4}]}];
+ for(const patch of [{title:'Novo',price:'12345'},{title:'Novo',notes:'Campo ausente'}]) {
+  await assert.rejects(applyLibibPatch(patch,()=>assert.fail('Não pode gravar'),{extraGroups,saveExtras:()=>assert.fail('Não pode gravar extra')}));
+ }
 });

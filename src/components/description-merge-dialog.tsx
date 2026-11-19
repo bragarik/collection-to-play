@@ -31,7 +31,7 @@ export function DescriptionMergeDialog({cards, maxLength, onUse, onCancel}: {
     <div class="merge-workspace"><section class="merge-sources" aria-label="Descrições por serviço">
       {model.cards.map(card => <article class="merge-source card card-border" key={`${card.album.service}:${card.album.id}`}>
         <div class="merge-source-heading"><h3><StreamingIcon service={card.album.service}/>{streamingName(card.album.service)}</h3>
-          {card.description && <button class="btn btn-soft btn-sm" id={`merge-all-${card.album.service}`} type="button" onClick={() => {model.chooseAll(card.album.service as MetadataServiceId);changed();}}><ActionIcon name="copy"/>Usar todos os dados</button>}</div>
+          {card.description && <div class="source-copy-actions"><button class="btn btn-soft btn-sm" id={`merge-pending-${card.album.service}`} type="button" disabled={!model.pendingSections(card).length} onClick={() => {model.choosePending(card.album.service as MetadataServiceId);changed();}}>Usar dados pendentes</button><button class="btn btn-soft btn-sm" id={`merge-all-${card.album.service}`} type="button" onClick={() => {model.chooseAll(card.album.service as MetadataServiceId);changed();}}><ActionIcon name="copy"/>Usar todos os dados</button></div>}</div>
         <p class="note">{card.album.title}</p>
         {card.description ? <>
           <details class="merge-full-description"><summary>Ver descrição completa</summary><pre class="description-preview">{card.description.text}</pre></details>

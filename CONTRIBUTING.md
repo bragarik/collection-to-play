@@ -885,9 +885,9 @@ nem o armazenamento de preferência para ouvir. As rotas de reprodução continu
 recusando Last.fm. O ID da fonte inclui o idioma; a chave da sessão de busca inclui
 o idioma para não reutilizar resultado de outra consulta.
 
-O editor usa uma única seleção **Serviços** e até cinco cards. O painel separado
-Last.fm foi removido. Idioma aparece apenas para Last.fm e artista é obrigatório
-nessa consulta. A descrição retornada já aparece nos detalhes do card. Textos
+O editor usa uma única seleção **Serviços** e até seis cards. O painel separado
+Last.fm foi removido. Idioma aparece apenas para Last.fm; artista é opcional
+na busca pelo título, com consulta direta quando preenchido. A descrição retornada já aparece nos detalhes do card. Textos
 longos não são cortados: podem ser copiados ao formulário para edição, mas a
 aplicação permanece bloqueada acima do teto/nativo menor e sem confirmação.
 Remover um card mantém campos copiados e suas referências de capa.
@@ -931,3 +931,648 @@ acionar e confirmar o handler nativo. O editor completo verifica o contexto
 movie e usa directors no contrato de preenchimento, mapeado para creators no
 formulário do Libib. Música e Vídeo reutilizam ArtworkPreview para apresentar
 a capa com dimensões, formato e tamanho. As medidas vêm do arquivo decodificado.
+
+
+A integração Discogs usa `src/streamings/discogs.ts` no worker, token local com
+acesso restrito e mensagens somente das páginas da extensão. O parser projeta
+metadados de catálogo e descarta imagens dos detalhes, dados de usuário e marketplace.
+Na pesquisa, preserva somente `thumb` validado em `searchThumbnailUrl`, separado
+de `artworkUrl`, variantes e metadados da edição.
+`src/albums/discogs-description.ts` monta os blocos e campos de inclusão, com
+atribuição obrigatória e dados da edição física. A consulta de detalhes valida
+o ID selecionado. A busca vincula paginação ao modo por código ou título;
+em Música, a continuação também fica vinculada à consulta original.
+
+O serviço integra a composição de Música e a seleção de fontes de Vídeo. Não
+integra a lista de preferências de reprodução. O pipeline de imagem recusa URLs
+Discogs e os cards não solicitam capas dessa fonte. A inclusão manual de Música
+reutiliza o serviço da edição. Vídeo mantém cards TMDb, Discogs, UPCitemdb e Last.fm e usa o modal
+de merge compartilhado, com diretores como atributo separado dos artistas.
+
+`tests/discogs.test.mjs` verifica seleção por código, fallback por título,
+paginação, filtro de vídeo, extração de dados, descarte de imagens e dados
+restritos, falhas, quota/Retry-After, campos manuais e merge/atribuição.
+`tests/opening.test.mjs` verifica a credencial e os dados projetados pelo worker.
+Suíte de 28 arquivos e build aprovados. A consulta pública real de Ramones — Raw
+confirmou os metadados da edição; busca autenticada e preenchimento real com
+Discogs dependem da conferência do desenvolvedor com seu token pessoal.
+
+
+A exportação comum de busca em `src/entrypoints/background.ts` agrega os registros
+em `searchByService`, incluindo Last.fm, TMDb, Discogs e UPCitemdb, além dos grupos de capa e
+descrição existentes. A UI usa somente **Diagnóstico de busca → Exportar log da
+busca**. Os eventos dos serviços novos são projetados em campos permitidos e não
+incluem headers, corpos ou credenciais. Regressão em `tests/opening.test.mjs`
+confirma a agregação e a exclusão desses campos.
+
+### Reconhecimento e validação de campos do Libib
+
+`src/libib/libib-item-fields.ts` compartilha o reconhecimento de extras e a
+validação de texto/data entre os formulários. Reutiliza a lista por mídia de
+`src/shared/manual-entry-fields.ts` e aceita somente controles únicos, conectados,
+editáveis e pertencentes ao formulário. Campos internos, inputs ocultos e
+controles `no-post` são excluídos; campos de uma aba inativa continuam válidos.
+O reconhecimento não depende da origem manual ou automática do item.
+
+`LibibFullEditor.extraFields` expõe os controles encontrados. A edição completa
+de Música/Vídeo utiliza os extras no mesmo modal da
+inclusão manual. O contexto envia valores e limites nativos; a cópia substitui o
+atributo no rascunho e a restauração recupera o valor inicial. Antes do
+preenchimento, todos os valores são validados e a identidade dos controles é
+conferida novamente após operações assíncronas. Os campos não selecionados são
+preservados e o salvamento continua pelo botão nativo do Libib.
+
+`prepareLibibItemFields` prepara valores sem alterar controles e respeita o
+menor limite entre o campo conhecido e o controle nativo. Ao mudar uma parte da
+data, valida a combinação com as partes atuais não selecionadas. Uma data antiga
+inválida não impede copiar outro campo. A inclusão manual utiliza essa mesma
+validação antes de preencher qualquer valor. Regressões em
+`tests/libib-item-fields.test.mjs`, `tests/libib-full-editor.test.mjs` e
+`tests/libib-manual-entry.test.mjs` cobrem capacidades por mídia, substituição do
+mesmo atributo, preservação de valores, limites e calendário.
+
+
+A validação Chromium da edição completa, com respostas controladas, verificou
+Música/Vídeo, ausência de extras, Vídeo sem descrição nativa, limites, cópia do
+Discogs, substituição do mesmo campo por iTunes, restauração e preenchimento
+seletivo. Nenhum formulário foi submetido e a coleção real não foi alterada.
+
+
+Na edição pelo lápis, `src/libib/libib-quick-fields.ts` confere os controles de
+`input_fields` em um documento inerte, sem inserir o HTML na página. Os campos
+precisam ter nomes conhecidos, valores escalares em `item` e uma opção única no
+menu atual. Valores ausentes ou com formato não reconhecido são excluídos;
+códigos numéricos não são convertidos para evitar perda de zeros. Datas em
+opções independentes não são oferecidas, pois poderiam gerar estados
+intermediários inválidos; grupos reconhecidos mantêm as partes não selecionadas.
+
+`LibibEditClient` devolve apenas grupos normalizados. O contexto e os componentes
+são os mesmos da edição completa e da inclusão manual. Antes da aplicação, o
+cliente relê as capacidades e compara os agrupamentos com os da abertura.
+`applyLibibPatch` valida toda a seleção, envia cada grupo uma única vez e devolve
+o resultado por campo. Qualquer resultado incerto interrompe a sequência.
+
+`saveLibibNativeField` aciona a opção e o Save nativos, confere os valores atuais,
+valida os limites dos controles e verifica o payload completo do grupo,
+incluindo valores preservados. A confirmação aguarda a atualização do estado
+privado do Libib. Uma divergência no payload de um envio observado é tratada
+como gravação incerta. O diagnóstico usa o estágio `extra`, sem nomes ou valores
+pessoais dos campos. Regressões em `tests/libib-quick-fields.test.mjs`,
+`tests/libib-native.test.mjs`, `tests/libib-metadata.test.mjs` e
+`tests/libib-edit-diagnostics.test.mjs` cobrem essas regras.
+
+Chromium com respostas e handler controlados confirmou o fluxo do lápis em
+Música/Vídeo, ausência de extras, Vídeo sem descrição, limites, substituição do
+mesmo atributo entre Discogs/iTunes, restauração, atualização do estado simulado
+e gravação de data agrupada preservando o mês. As rotas foram interceptadas;
+nenhuma escrita foi feita na coleção real. A suíte de 30 arquivos e o build
+passaram; a conferência na instalação real permanece necessária.
+
+
+A revisão final acrescentou oito cenários Chromium com respostas controladas:
+data incompatível bloqueada e corrigida, troca de item sem envio e falha parcial
+sem repetição, tanto para Música quanto para Vídeo; layouts de 390px e 700px sem
+rolagem horizontal e com aplicação utilizável. A falha parcial desmarca somente
+o campo confirmado e preserva o restante selecionado. Nenhuma alteração de
+código foi necessária nesses cenários. Esses resultados não substituem o aceite
+na instalação real, ainda não informado pelo desenvolvedor.
+
+
+A busca Last.fm sem artista utiliza `album.search`, paginação vinculada à consulta
+atual e candidatos leves validados por nome/artista/URL. Ao adicionar, o editor
+consulta `album.getInfo` para o candidato escolhido e o idioma do resultado.
+Com artista informado, mantém a consulta direta existente. O diagnóstico distingue
+os métodos e quantidades sem registrar chave ou URL autenticada. Regressões em
+`tests/lastfm.test.mjs` e `tests/opening.test.mjs` cobrem consulta por título,
+paginação, escolha, identidade, credencial e privacidade. O teste real de
+Give 'Em the Boot III confirmou Various Artists como primeiro resultado e 21
+faixas nos detalhes, sem texto Sobre o álbum nessa resposta.
+
+`CopyFieldButton` reutiliza o padrão visual do merge nos campos das fontes de
+Música/Vídeo: estado neutro, usado da fonte atual e usado de outra fonte.
+`src/albums/field-copy-status.ts` compara serviço/álbum e preserva origens de
+composições e edições manuais. Extras mantêm a origem em estado do formulário;
+somente seus valores selecionados são enviados ao Libib. Clicar novamente continua
+copiando, sem bloquear a troca. Restauração/desmarcação atualizam o indicador.
+Testes em `tests/field-copy-status.test.mjs`; Chromium validou campos básicos,
+extras, edição manual, restauração, troca Discogs/iTunes e Last.fm sem artista.
+Suíte de 31 arquivos, tipos, build e diff-check aprovados.
+
+
+`metadataProductCode` encaminha EAN/UPC somente a Spotify/Discogs e distingue os
+códigos de 12 e 13 dígitos. A consulta inicial do modal aguarda serviços e contexto
+nativo para não perder os códigos. O snapshot do lápis preserva identificadores
+válidos do item independentemente de controles editáveis; eles seguem pelos
+parâmetros do editor sem habilitar sua edição. A troca de serviço remove ambos
+os identificadores da consulta quando não suportados. Regressões em
+`tests/metadata-search.test.mjs` e `tests/libib-edit.test.mjs`.
+
+Se `SpotifyClient.albumDetails` já obteve faixas e demais dados para conferir o
+identificador, formata uma descrição ligada ao mesmo álbum no candidato.
+`descriptionFromSearch`/`loadAlbumDescription` reutilizam esse documento sem rede,
+respeitando cancelamento. Caso os dados opcionais sejam inválidos, a resolução
+por código continua funcionando e a geração explícita segue disponível. Testes
+em `tests/spotify.test.mjs` e `tests/album-description.test.mjs` confirmam ausência
+de uma segunda consulta e descrição pronta ao adicionar.
+
+`ManualMusicFields` mostra somente a observação da fonte na coluna de origem;
+a observação do valor copiado permanece no rascunho, evitando duplicação após
+copiar preço/duração. Chromium com respostas controladas conferiu código na
+primeira busca Spotify, UPC, troca de serviço, descrição sem nova consulta e uma
+única observação de preço em cada área. Suíte de 31 arquivos, tipos, build e
+verificação de espaços aprovados; versão 0.5.0 preservada.
+
+
+O adaptador Discogs usa integralmente `formatAlbumDescription`: seções extras
+(país, formato, catálogo e outros identificadores) e `sourceCredit` seguem como
+dados do formatador. Os metadados usam linhas consecutivas antes das faixas;
+o rodapé comum recebe o crédito obrigatório e o link. Não há montagem separada
+do texto no adaptador. Avisos de faixas parciais e atribuição no merge/edição
+manual são preservados. Regressões em `tests/discogs.test.mjs`; suíte de 31
+arquivos, tipos, build e verificação de espaços aprovados.
+
+
+`formatDescriptionText` centraliza a montagem de metadados, blocos de texto,
+faixas e rodapé para todos os serviços. `formatAlbumDescription`, `LastfmSource`
+e o documento TMDb delegam a ela; somente a extração e os rótulos dos campos
+permanecem nos adaptadores. Last.fm preserva o texto original de Sobre o álbum,
+seus parágrafos e crédito; TMDb preserva a sinopse e os rótulos de vídeo. Textos
+longos continuam disponíveis para revisão antes do limite de aplicação ao Libib.
+Discogs preserva `notes` literalmente em `releaseNotes` e `manualFields.notes`,
+separado da descrição estruturada e do merge. Last.fm mantém `wiki.content` e
+`wiki.summary` originais em `rawAbout`/`rawSummary` para Notas, enquanto
+`about`/`summary` continuam como texto tratado para descrição/mesclagem. TMDb
+oferece `overview` diretamente em Notas. Por solicitação explícita do desenvolvedor,
+Notas não acrescenta título, fonte, URL ou termos e não normaliza o texto recebido. Last.fm/TMDb mantêm seus textos na descrição. Ausência do texto
+omite a opção de cópia; copiar prepara o rascunho e só os campos selecionados são
+aplicados. Não há consulta adicional. Regressões em
+`tests/discogs.test.mjs`,
+`tests/album-description.test.mjs` e `tests/lastfm-source.test.mjs`; suíte de 31
+arquivos, tipos, build e verificação de espaços aprovados. Chromium confirmou
+Last.fm e TMDb, incluindo cópia fiel e confirmação de substituição.
+
+
+`UnusedDataBadge` é compartilhado pelos cards de Música e Vídeo. A regra pura
+`hasUnusedCardData`, em `src/albums/field-copy-status.ts`, compara os atributos
+fornecidos/aplicáveis por card com os campos selecionados globalmente no rascunho;
+a fonte e os valores copiados não mudam essa cobertura por atributo. Cada editor
+reutiliza `extraSource` para os dados da fonte e do indicador, incluindo somente
+extras presentes no contexto nativo. Descrição não carregada e capa indisponível
+não contam como dados oferecidos. Nenhuma consulta ou gravação adicional.
+Regressões em `tests/field-copy-status.test.mjs` cobrem compartilhados, exclusivos,
+restauração e ausência de dados. Chromium com respostas controladas validou Música
+e Vídeo com/sem extras: cópia de outra fonte, tags exclusivas, restauração,
++ todos, desmarcação e layout estreito, sem escrita na coleção real.
+
+
+`UseInSearchButton` compartilha o atalho do rascunho para a busca nos editores e
+em `ManualMusicFields`. Leva título/artistas/códigos sem alterar seleção, origem
+ou valor do campo nativo; artistas são unidos por vírgula na consulta musical.
+Respeita os limites da busca e só mostra atalhos de códigos em fontes compatíveis.
+Resultados/continuação anteriores são invalidados sem consulta automática.
+Chromium com respostas simuladas validou Música/Vídeo com/sem extras, valores
+iniciais de EAN/UPC, campos editados, artista múltiplo, vazio desabilitado e ausência
+de chamadas de busca adicionais ao usar os atalhos. Build/tipos aprovados.
+
+
+`SearchResultsSkeleton` compartilha três cartões de carregamento entre Música e
+Vídeo, com capas proporcionais à mídia, ícones de disco/filme e linhas que reproduzem título/metadados. O brilho usa `search-results-shimmer` no pseudo-elemento dos blocos, com deslocamento horizontal visível e ciclo de 1,3 segundo.
+O estado é específico da busca, separado da inclusão/aplicação de dados. Nova
+busca oculta resultados anteriores durante a espera; paginação os preserva.
+Blocos decorativos ficam fora da leitura assistiva e o contêiner indica ocupado;
+a preferência `prefers-reduced-motion` desativa a animação. Busca encerrada ou com
+erro remove os cartões de espera. Build/tipos aprovados; Chromium com respostas
+simuladas conferiu os dois editores, término, falha e movimento reduzido.
+
+
+Refinamento visual do carregamento conferido em captura do Chromium: capas com
+ícones, linhas de tamanhos variados e ação discreta em vez de grandes blocos
+arredondados. A validação mediu a transformação do brilho em instantes distintos
+para comprovar movimento e confirmou sua desativação com movimento reduzido.
+
+
+Rolagem de modais e iframes fica contida por regras compartilhadas em `src/ui.css`:
+`html:has(dialog[open])` bloqueia a página de fundo, `overscroll-behavior: contain`
+isola as bordas de rolagem e `scrollbar-gutter: stable` evita deslocamento lateral.
+Fechar o último diálogo restaura a rolagem sem sobrescrever estilos do Libib.
+Chromium com o componente real de combinação confirmou roda do mouse no cabeçalho,
+painel sem rolagem e limite de conteúdo, fundo imóvel, conteúdo rolável, restauração
+ao fechar e limite do iframe sem rolar a página pai. Build/tipos e diff-check aprovados.
+
+
+`matchingCatalogSources` percorre os cards em ordem de inclusão e utiliza
+`matchingCatalogFields` para reconhecer valores não vazios contra o contexto
+original e o valor atual do rascunho. Cada atributo mantém a primeira fonte igual,
+sem bloquear a comparação das seguintes por ausência ou divergência anterior.
+Não altera `included`, origem persistida ou patch. Música usa a ordem do modelo;
+Vídeo usa a ordem de inclusão nas propriedades dos cards, independente da ordem
+visual fixa dos serviços. `CopyFieldButton` recebe `matchedSource` como origem
+visual de fallback; a cópia explícita selecionada tem prioridade. Extras usam o
+mesmo componente e os campos reconhecidos contam na cobertura da etiqueta.
+Editar para um valor diferente remove o reconhecimento; remover uma fonte permite
+reconhecer a próxima correspondente. A comparação normaliza extremidades/quebras
+de linha e separadores das listas de nomes/tags, sem ignorar caixa dos textos ou
+remover zeros dos códigos. Capas não são comparadas; não há consultas adicionais
+ou tratamento diferente apenas pelo modo de edição/inclusão.
+Regressões em `tests/field-copy-status.test.mjs`, suíte de 31 arquivos, tipos/build
+e seis cenários Chromium aprovados. O caso real “ST2 Records, Eagle Records,
+Montreux Sounds” foi reproduzido com primeiro card divergente e segundo igual:
+verde no correspondente, amarelo no anterior, etiqueta atualizada e sem selecionar
+campos para salvar. Valores vazios, edição manual e cópia explícita preservados.
+
+
+Miniaturas Discogs: a pedido do desenvolvedor, `DiscogsSearchThumbnail` reutilizado
+nos resultados de Música/Vídeo exibe somente `searchThumbnailUrl` da busca.
+`isDiscogsSearchThumbnailUrl` limita a HTTPS nos hosts i.discogs.com/img.discogs.com,
+sem credenciais, portas, query ou fragmento. A imagem é carregada diretamente pelo
+browser, com lazy loading e sem Referer, apenas para consulta; falha volta ao ícone.
+Não há fetch autenticado de imagem, persistência adicional, ampliação para capa ou
+transferência ao Libib. Detalhes da edição não carregam a miniatura e o pipeline de
+capas continua recusando Discogs. Crédito/link permanecem junto de cada resultado.
+Termos da API conferidos em 19/11/2026: uso pessoal de dados restritos na aplicação
+é distinto da transferência a terceiros, que permanece excluída. Fonte:
+https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use .
+Regressões de URL/isolamento em `tests/discogs.test.mjs`; suíte de 31 arquivos,
+tipos/build e quatro cenários Chromium aprovados, incluindo imagem válida/falha em
+Música/Vídeo e ausência de cópia individual/total da capa. Versão 0.5.0 mantida.
+
+
+Cliente UPCitemdb em `src/streamings/upcitemdb.ts`, conectado ao worker; habilitado
+na composição de Música e Vídeo. Usa somente `/prod/trial/lookup` e `/prod/trial/search`,
+sem chave/cookies/redirect. Código com dígito válido primeiro; retorno não exato ou
+vazio pode seguir para título/artista. Paginação usa o offset retornado pela API,
+vinculado à consulta/mídia e limitado aos primeiros mil resultados. Dados incluem
+título/códigos/descrição/marca/modelo/categoria e URLs HTTPS de imagens; marca não
+é artista/diretor/estúdio, ofertas/preços e dados de usuário são descartados.
+O cliente não busca imagens; URLs normalizadas podem ser usadas pelo pipeline compartilhado de capas da composição de Música/Vídeo.
+Categorias de DVD podem estar incorretas: formatos do título ajudam na relevância;
+produtos claramente alheios, como roupa, são filtrados da pesquisa textual. Não há
+escolha automática de edição nem troca do código informado pelo usuário.
+Fila única com espaçamento global de 10s e 15s entre buscas textuais; cache de
+respostas normalizadas em memória por 5min, até 64 consultas, incluindo vazio.
+Cache reavaliado na fila evita repetir pedidos simultâneos e devolve cópias.
+Quotas locais de 100 pedidos/20 pesquisas por dia UTC; documentação diverge sobre
+20/40 pesquisas, então o cliente usa o menor valor. Headers da API, reset e
+Retry-After interrompem consultas, sem retentativa automática. O limite real é
+por IP; contadores/cache locais pertencem à instância em memória. Espera e fetch
+admitem cancelamento; timeout de rede comum de 20s. Diagnóstico não inclui query,
+código consultado, URLs, corpo ou dados pessoais. Nenhuma nova permissão/tela.
+Fontes: https://www.upcitemdb.com/wp/docs/main/development/plan/ ,
+https://www.upcitemdb.com/wp/docs/main/development/api-rate-limits/ e
+https://devs.upcitemdb.com/ . Dez cenários em `tests/upcitemdb.test.mjs`, suíte de
+32 arquivos, tipos/build e diff-check aprovados. Resposta real Ramones Raw foi
+projetada e filtrada sem nova consulta por cada item ou gravação no Libib.
+
+
+UPCitemdb no worker: `upcitemdb:search` aceita mídia/origem e `metadata:search` atende
+Música com o mesmo cliente. Continuação envolve o cursor do cliente com a assinatura
+do contexto Libib; origem, mídia e códigos divergentes não podem reutilizá-lo.
+Permissão adicional limitada a `https://api.upcitemdb.com/*`. Não exige credencial,
+não participa de STREAMINGS/preferências de reprodução e o seletor de Música inclui a fonte; Vídeo permanece na integração visual anterior.
+`src/albums/upcitemdb-source.ts` revalida identidade/produto, constrói candidatos
+com `artists: []` e delega a montagem textual a `formatDescriptionText`. Marca,
+Modelo e Categoria são seções próprias do merge, sem mapear marca para estúdio ou
+criadores. EAN/UPC são os campos nativos oferecidos. Descrição original permanece
+no bloco Sobre o produto; geração automática reutiliza a pesquisa e não faz nova
+consulta. Imagens HTTPS do produto são expostas como artworkUrl/variantes e validadas pelo pipeline compartilhado na composição de Música. O modelo preserva artista/capa existentes e permite
+revisar texto longo antes do limite de aplicação.
+`searchByService.upcitemdb` integra a exportação de diagnóstico existente. Armazena
+até cinquenta eventos com projeção explícita de método/estado/quota/tempo/código,
+incluindo bloqueios locais e detalhes limitados de transporte. Query, código de
+barras, URL, corpo, ofertas, mensagens brutas e credenciais ficam fora desse log.
+A projeção também é reaplicada ao exportar, e falhas de storage do log são isoladas.
+Validação em `tests/upcitemdb-source.test.mjs` e `tests/opening.test.mjs`, usando o
+handler real e respostas controladas: origem/permissões, dados ausentes, cache,
+descrição sem rede, códigos conflitantes, HTTP/429, cursores, preservação de campos
+e privacidade. Suíte de 33 arquivos, tipos/build e diff-check aprovados; sem escrita
+na coleção real ou mudança da versão 0.5.0.
+
+
+UPCitemdb em Música usa a seleção/resultados/cards existentes, agora com sete
+fontes, código opcional e consulta sem título quando há EAN/UPC. `metadataProductCode`
+encaminha códigos também a esta fonte e os remove ao trocar para uma sem suporte.
+`UpcitemdbProductInfo` compartilha apresentação de marca/modelo/categoria/códigos e
+link, sem atribuir esses dados a artista/estúdio. Ausência de artistas é esperada
+nesta fonte: campo de cópia e alerta negativo por artista ausente são omitidos.
+O rascunho mantém artistas/estúdio/notas existentes; a descrição é automática e
+Marca/Modelo/Categoria participam do merge comum. Etiquetas e reconhecimento por
+atributo continuam compartilhados. Sem imagem não inicia pedido de capa.
+`upcitemdbCandidate` projeta URLs HTTPS do produto em artworkUrl/variantes;
+`fetchAlbumArtwork` revalida produto e identidade e recusa URLs injetadas fora
+nessa lista. Reutiliza limites/tipos/decodificação/dimensões do pipeline atual,
+sem nova permissão de hosts de imagens. Origens que não autorizarem CORS podem
+falhar, mantendo os outros dados. URLs locais/IPs/credenciais e de Discogs são
+recusadas; Discogs mantém somente miniatura de pesquisa. Uma imagem real do
+retorno Ramones Raw respondeu HTTP 200/JPEG e Access-Control-Allow-Origin: *, sem
+escrita no Libib. O ícone é SVG local de código de barras, incluído no manifesto.
+Regressões em `tests/upcitemdb-source.test.mjs`, `tests/upcitemdb.test.mjs`,
+`tests/metadata-search.test.mjs`, `tests/lastfm-source.test.mjs` e
+`tests/opening.test.mjs`. Suíte de 33 arquivos, tipos/build e Chromium em três
+modos aprovados: código primeiro/código sem título, paginação, capa válida/falha/
+ausente, descrição sem nova consulta, cópia/restauração de EAN, artista/estúdio/notas
+preservados, merge, seleção/confirmacão de descrição, troca de fonte sem códigos,
+quota/vazio, indicador de dados aproveitados e tela estreita. Roteiro
+`/tmp/collection-to-play-upcitemdb-music-browser.mjs`; mensagens de aplicação
+capturadas e respondidas no harness, sem submit/POST ou escrita em coleção real.
+
+
+UPCitemdb em Vídeo integra `src/pages/metadata/video-editor.tsx` como terceira
+fonte ao lado de TMDb/Discogs, sem depender das credenciais dessas fontes. Usa
+`upcitemdb:search` com mídia movie, origem e continuação; revalida candidatos e
+reutiliza a descrição inicial ao adicionar e combinar, sem outro pedido ao catálogo.
+Título/códigos/capa usam revisão, cópia seletiva e estados comuns; dados ausentes
+não substituem diretores, elenco, estúdio, data ou notas. Formulários sem campos
+adicionais preservam o código inicial somente para busca.
+
+`loadAlbumArtworkResource` mantém o recurso do card e o rascunho retém uma
+referência ao copiar a capa. Remover o card não revoga o blob ainda usado pelo
+rascunho; restaurar/fechar libera a referência. A aplicação usa o File carregado,
+sem novo download. Retry recarrega somente a imagem; ausência de imagem não
+dispara pedido. O preview comum aceita capas verticais com dimensões/formato/bytes.
+
+Suíte de 33 arquivos, tipos/build e diff-check aprovados após habilitar Vídeo.
+Chromium controlado em `/tmp/collection-to-play-upcitemdb-video-browser.mjs` e
+relatório correspondente: edição completa, lápis, inclusão manual e formulário
+limitado; código com zero inicial/sem título, paginação, ausência de credenciais,
+cópia/restauração, preservação de campos, estados/etiqueta, merge com TMDb, confirmação
+de descrição, quota/vazio, capa ausente/falha/retry/vertical e largura estreita.
+Retenção após remover card, File aplicado sem download adicional e liberação
+no reset e unmount também conferidos. O unmount usa bundle temporário do componente
+real; os fluxos usam o build dist. Respostas e confirmação assíncrona da aplicação
+são simuladas, sem submit/POST ou gravação na coleção real. A rodada conjunta
+posterior está registrada abaixo; versão 0.5.0 mantida.
+
+
+Validação conjunta UPCitemdb: `npm test` e `npm run build` aprovados sobre a
+mesma árvore, seguidos dos roteiros Chromium de Música e Vídeo sobre o mesmo
+`dist/`. Resultado: 33 arquivos de testes e sete cenários de interface aprovados
+(três de Música, três de Vídeo e um de Vídeo com campos limitados). Sem alteração
+de código de produção nesta rodada.
+
+O teste do worker em `tests/opening.test.mjs` verifica os dois contratos reais
+com transporte controlado: lookup compartilhado em cache entre Música e Vídeo,
+descrição reutilizada, credencial desnecessária, origem/identidade/continuação
+validadas, imagem sem consumir consulta do catálogo, falhas HTTP/429 e projeção
+do diagnóstico comum. `tests/upcitemdb.test.mjs` cobre código sem correspondência,
+alternativa textual, código sem título, paginação, quotas e preservação de zeros;
+`tests/upcitemdb-source.test.mjs` cobre campos ausentes, preservação da composição
+e capa validada. Os roteiros de UI simulam as mensagens runtime e a confirmação
+de aplicação; não exercitam uma conexão de extensão instalada ao Libib real.
+
+Relatório consolidado: `/tmp/collection-to-play-upcitemdb-final-result.json`.
+Logs desta rodada: `/tmp/collection-to-play-upcitemdb-final-tests.log`,
+`/tmp/collection-to-play-upcitemdb-final-build.log`,
+`/tmp/collection-to-play-upcitemdb-final-music-browser.log` e
+`/tmp/collection-to-play-upcitemdb-final-video-browser.log`.
+
+Conferência real pendente do desenvolvedor: recarregar a extensão a partir de
+`dist/`, abrir Música/Vídeo pela edição completa, lápis e inclusão manual, buscar
+por código e por título e conferir cópia/restauração de campos, preservação de
+artista/diretores/estúdio, capa e confirmação de descrição. Na edição completa
+e manual, conferir o preenchimento antes de salvar/enviar no Libib; o lápis
+aplica imediatamente os campos marcados. Registrar o resultado e eventuais erros
+antes de encerrar o aceite. Versão 0.5.0 mantida, sem commit/tag/push.
+
+
+A base de leitura local de EAN/UPC está em `src/barcodes/barcode-decoder.ts`,
+com `@ericblade/quagga2` fixado em 1.13.0 e avisos Quagga2/gl-matrix em `NOTICE.txt`.
+O plugin de build em `vite.config.mjs` emite `dist/barcode-decoder.js` com exports
+preservados e uma dependência Quagga carregada sob demanda de um chunk local.
+Não há captura de câmera ou controle de leitura habilitado nesta etapa.
+
+`decodeBarcode` recebe um Blob de foto ou quadro capturado, aceita JPEG/PNG/WebP/BMP
+até 12 MiB e 24 megapixels e retorna um código/formato validado ou ausência de
+leitura. Imagem corrompida é recusada antes dos callbacks do Quagga. As tentativas
+usam resolução original e, se necessário, 800 px, localização e leitores UPC-A/EAN-13,
+sem worker gerado por blob ou serviço externo. Leituras são serializadas entre
+consumidores; AbortSignal é cooperativo entre etapas. Uma leitura ativa conserva
+sua URL até o processamento terminar, mesmo se cancelada, e a libera ao final.
+
+`parseBarcodeReading` confere formato, comprimento e dígito verificador por
+`normalizeProductCode`. `barcodeValueForTarget` mantém o texto lido para busca,
+acrescenta um zero para converter UPC-A em EAN-13 e remove somente esse zero
+para a representação UPC-A equivalente; EAN não iniciado por zero não cabe em UPC-A.
+Nunca há conversão numérica ou remoção genérica de zeros iniciais.
+
+O pacote fornece declarações antigas incompatíveis com TypeScript 7. A integração
+importa sua distribuição de navegador e usa `src/barcodes/quagga-browser.d.ts`
+para tipar somente a API consumida, sem desligar verificações globais de tipos.
+A execução real do build é conferida no Chromium.
+
+`tests/barcode-decoder.test.mjs` cobre formatos/dígitos inválidos, zeros e destinos,
+segunda tentativa, filas, cancelamento, erros e liberação de URLs. Suíte de
+34 arquivos, tipos/build e diff-check aprovados. Roteiro
+`/tmp/collection-to-play-barcode-decoder-browser.mjs` e relatório correspondente
+validaram o módulo de `dist/` sob `script-src 'self'; object-src 'self';`: seis
+fotos públicas, três códigos gerados, quadro simulado, imagem vazia/corrompida,
+MIME/dimensões inválidos e recuperação após erro, sem serviço remoto de leitura.
+As sete regressões de interface Música/Vídeo também passaram sobre o novo build.
+Câmera física e permissões da extensão instalada/iframe ainda dependem da etapa
+de interface e da conferência real; não foram exercitadas por esses testes.
+
+
+O leitor compartilhado está em `src/components/barcode-reader.tsx`, com estado e
+ciclo de recursos em `src/barcodes/barcode-reader.ts`. `BarcodeReaderButton`
+oferece leitura e, após indisponibilidade da câmera, passa a oferecer foto.
+`BarcodeReaderDialog` também permite escolher foto durante a solicitação de
+permissão ou tentar a câmera novamente. O resultado é revisável/editável e só
+é devolvido por `onUse` após confirmar **Usar código**; conversão para EAN/UPC
+respeita o destino. Enter no campo de revisão não submete o formulário pai.
+
+A câmera solicita somente vídeo, com preferência de câmera traseira e resolução
+ideal 1280×720. A captura recorta os 70% centrais da largura e 35% da altura,
+preservando os pixels originais; a mira acompanha essa área mesmo com barras
+pretas na prévia de vídeo em orientação vertical. Há somente uma
+decodificação ativa por sessão e duas leituras consecutivas iguais são necessárias
+antes da revisão. A captura termina ao reconhecer o código, usar foto, cancelar,
+pressionar Escape, ocultar a página, desmontar ou navegar o iframe. Autorização
+tardia tem suas tracks encerradas sem atualizar uma sessão fechada. Foto usa o
+mesmo decodificador local; ausência de código, imagem inválida ou EAN sem
+equivalência UPC-A não preenchem o campo.
+
+`src/components/catalog-ui.tsx` delega `allow="camera"` somente ao iframe do
+editor. Não foram adicionadas permissões de manifesto, áudio ou alterações de
+CSP. A política da página pai ainda pode bloquear a câmera; nesse caso o leitor
+oferece foto. Referência: https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia .
+`vite.config.mjs` emite `barcode-reader.js` e `src/ui.css` contém o estilo compartilhado.
+Os pontos de entrada em Música e Vídeo estão habilitados conforme as etapas
+de integração descritas abaixo.
+
+`tests/barcode-reader.test.mjs` cobre sessão, confirmação, erros, concorrência,
+autorização tardia, cancelamento e interrupção. Suíte de 35 arquivos, tipos/build
+e diff-check aprovados. `/tmp/collection-to-play-barcode-reader-browser.mjs`
+e relatório correspondente aprovaram 14 cenários: câmera ausente/ocupada/negada,
+API ausente, leitura real de foto/quadro simulado, revisão/correção, conversão
+por destino, imagem inválida/vazia, Enter sem submit, largura estreita, Escape,
+página oculta, unmount, navegação do iframe e autorização tardia. Uma extensão
+de teste instalada com o mesmo identificador e CSP padrão confirmou getUserMedia
+com câmera virtual no iframe delegado e a alternativa por foto quando a página
+pai aplicou `Permissions-Policy: camera=()`. Fixture usa bundle temporário do
+componente real e importa também o módulo produzido em dist para conferir exports.
+As sete regressões existentes de Música/Vídeo também passaram. Sem acesso à
+coleção real ou câmera física; a conferência com o Libib real continua pendente.
+
+
+Leitura em Música integrada em `src/pages/metadata/metadata-editor.tsx` e
+`src/components/manual-music-fields.tsx`. A busca mostra o leitor somente quando
+`metadataUsesProductCode` é verdadeiro. O rascunho oferece EAN/UPC somente entre
+os controles nativos disponíveis e desabilita a leitura se o maxLength real não
+comportar o código completo. Confirmação do leitor passa pelo mesmo onChange
+dos campos, seleciona apenas o destino e limpa atribuição/notas de fonte: código
+lido localmente não é atribuído ao card. A restauração existente é reutilizada.
+
+`BarcodeReaderButton.fieldLabel` diferencia busca/EAN/UPC por nome acessível.
+Disponibilidade constatada da câmera é compartilhada em memória entre os botões
+da página, sem guardar permissões. Após negação, todos oferecem foto; tentar a
+câmera com sucesso restaura o modo leitor. Estilo do grupo de busca em
+`src/pages/metadata/metadata-editor.css`; fluxo compartilhado sem duplicar captura.
+
+`MetadataSearchSession.clearResults` remove o cache/cursor da fonte selecionada
+e invalida respostas pendentes, sem consulta e preservando caches de outras
+fontes. Edição/scan do código de busca usa essa operação, inclusive quando o
+valor confirmado é igual ao anterior. Leitura no rascunho não muda a consulta
+ou seus resultados. Regressão em `tests/metadata-search.test.mjs`.
+
+Suíte de 35 arquivos, tipos/build e diff-check aprovados.
+`/tmp/collection-to-play-barcode-music-browser.mjs` e relatório correspondente
+validaram o build real em uma extensão de teste instalada, com resources
+acessíveis conforme o manifesto gerado e transporte de catálogo controlado.
+Cinco cenários: edição completa, lápis, inclusão manual, formulário sem campos
+EAN/UPC e limites nativos menores. Câmera simulada/foto, negação compartilhada,
+revisão, Enter/cancelamento sem ação, zeros/destinos, restauração, campo
+selecionado, origem manual, códigos sem título, paginação/resposta tardia, troca
+de fonte, busy e largura estreita aprovados. Capturadas somente mensagens de
+aplicação; confirmação rápida simulada por campo e nenhuma gravação real.
+Os 14 cenários do leitor compartilhado e sete regressões de composição
+Música/Vídeo também passaram. Logs `/tmp/collection-to-play-barcode-music-tests.log`,
+`/tmp/collection-to-play-barcode-music-build.log` e
+`/tmp/collection-to-play-barcode-music-browser.log`. Câmera física e aceite real
+permanecem pendentes; versão 0.5.0 mantida.
+
+
+Leitura em Vídeo integrada em `src/pages/metadata/video-editor.tsx`: mesmo
+`BarcodeReaderButton` da Música, na busca Discogs/UPCitemdb e nos campos EAN/UPC
+do rascunho quando disponíveis. TMDb não mostra código na busca; os controles
+nativos do rascunho continuam podendo receber leitura. Limites reais do campo
+e busy são respeitados; campo ausente não recebe botão.
+
+Confirmação na busca só preenche código, limpa resultados e ambas as paginações
+e orienta consultar explicitamente. Revisão de busca invalida retornos antigos
+de UPCitemdb/Discogs/TMDb, incluindo erros, continuação e respostas após unmount.
+A interface de Vídeo mantém seus controles desabilitados durante uma busca; o
+roteiro força uma invalidação por evento para verificar a proteção de retorno.
+Confirmação no rascunho seleciona somente o campo lido e limpa atribuição de fonte
+do atributo. Mantém diretores, elenco, estúdio, data, notas, cards e consulta;
+restauração existente preservada. Não duplica decodificador/captura ou permissões.
+
+Suíte de 35 arquivos, tipos/build e diff-check aprovados.
+`/tmp/collection-to-play-barcode-video-browser.mjs` e relatório correspondente
+validaram cinco cenários sobre o build real em extensão de teste instalada:
+edição completa, lápis, inclusão manual, campos EAN/UPC ausentes e limites menores.
+Câmera simulada/foto, negação compartilhada, revisão/correção, Enter/cancelamento,
+zeros/destinos, restauração, seleção/origem, preservação dos demais dados, código
+sem título, paginação/resposta tardia, busy, troca TMDb/Discogs e largura estreita
+aprovados. Aplicação capturada em mensagem, com confirmação por campo simulada
+na edição rápida; sem gravação na coleção real ou uso de câmera física.
+Quatro regressões existentes de composição de Vídeo e cinco de leitura de Música
+também passaram. Logs `/tmp/collection-to-play-barcode-video-tests.log`,
+`/tmp/collection-to-play-barcode-video-build.log`,
+`/tmp/collection-to-play-barcode-video-browser.log`,
+`/tmp/collection-to-play-barcode-video-source-regression.log` e
+`/tmp/collection-to-play-barcode-video-music-regression.log`. Validação final
+e conferência física/real ainda pendentes; versão 0.5.0 mantida.
+
+
+Falha real reportada após conceder câmera no Chrome/Windows: consulta no documento
+principal retornou política liberada, permissão `granted` e `NotAllowedError` com
+`Permission denied by system`. `src/barcodes/barcode-reader.ts` agora distingue
+essa assinatura a recusa pelo sistema operacional da recusa genérica do navegador
+e orienta liberar a câmera na privacidade do sistema. Não mostra erros arbitrários
+ou informações do dispositivo. Teste de regressão em `tests/barcode-reader.test.mjs`
+confere a mensagem e nova tentativa com sucesso após desbloqueio simulado.
+
+Suíte de 35 arquivos e build aprovados: `/tmp/collection-to-play-camera-system-tests.log`
+e `/tmp/collection-to-play-camera-system-build.log`. Roteiro
+`/tmp/collection-to-play-camera-system-browser.mjs` e relatório correspondente
+confirmaram alternativa por foto, mensagem específica e recuperação do leitor
+com confirmação explícita após desbloqueio simulado. O desenvolvedor identificou
+o ESET como origem do bloqueio; após liberá-lo, a câmera abriu. Nenhuma alteração de permissão,
+manifesto ou versão foi feita para contornar o bloqueio.
+
+
+Refinamento da captura: `cameraScanArea` e o componente do leitor recortam somente
+a área central indicada pela mira, sem reduzir as barras antes da decodificação.
+A foto permanece sem recorte. Testes de limites/centralização, suíte de 35 arquivos
+e build aprovados (`/tmp/collection-to-play-camera-crop-tests.log` e
+`/tmp/collection-to-play-camera-crop-build.log`). Chromium confirmou leitura de
+códigos sintéticos de 180 a 400 px em vídeo 1280×720, duas capturas antes da revisão
+e alinhamento da mira em paisagem/retrato: relatório
+`/tmp/collection-to-play-camera-crop-browser-result.json`. A confirmação de leitura
+com a câmera física continua pendente.
+
+Os sete serviços de Música usam linhas de quatro e três botões; em contêineres
+até 300 px, três, dois e dois, com ícone acima do nome para preservar a leitura.
+Estilos limitados a `.music-services` em `src/pages/metadata/metadata-editor.css`
+e marcação em `src/pages/metadata/metadata-editor.tsx`. Validado nos cinco fluxos
+do harness integrado de Música e em larguras de 320, 390, 980 e 1280 px.
+
+
+Cópia de pendentes: `copyButtonState` em `src/albums/field-copy-status.ts` é
+compartilhado pelo botão individual e pelas ações **+ Pendentes** dos editores
+Música/Vídeo. Somente campos disponíveis no formulário e no estado `available`
+são copiados; preservam-se origens usadas, correspondências com o Libib e estados
+de substituição. Inclui campos básicos, capa/descrição carregadas e extras
+realmente disponíveis. A ação é desabilitada sem pendentes ou durante ocupação.
+
+No modal compartilhado, `DescriptionMerge.pendingSections`/`choosePending` e
+**Usar dados pendentes** acrescentam somente blocos não escolhidos, preservando
+as escolhas de qualquer fonte e a edição manual conforme o modelo existente.
+As ações de copiar todos continuam permitindo substituição explícita.
+Regressões em `tests/field-copy-status.test.mjs` e
+`tests/description-merge.test.mjs`; suíte de 35 arquivos e build aprovados em
+`/tmp/collection-to-play-pending-fields-tests.log` e
+`/tmp/collection-to-play-pending-fields-build.log`. Chromium: quatro cenários
+Música/Vídeo com/sem campos extras, estado e ordem dos botões, preservação de
+campos reconhecidos/de outra fonte, mesclagem, ausência de pendentes e largura
+estreita aprovados em `/tmp/collection-to-play-pending-fields-browser-result.json`.
+Respostas simuladas, sem gravação real na coleção. Versão 0.5.0 mantida.
+
+
+Notas literais: testes de igualdade em `tests/discogs.test.mjs` e
+`tests/lastfm-source.test.mjs` cobrem espaços, quebras, entidades/marcação,
+texto longo e resumo como alternativa. Nenhum HTML é executado para apresentar
+Notas; os componentes continuam renderizando valores como texto. Suíte de 35
+arquivos, build e dois cenários Chromium de TMDb com/sem campo Notas aprovados:
+`/tmp/collection-to-play-literal-notes-tests.log`,
+`/tmp/collection-to-play-literal-notes-build.log` e
+`/tmp/collection-to-play-literal-notes-browser-result.json`. Conferida igualdade
+do valor copiado no rascunho, sem gravação real no Libib. Versão 0.5.0 mantida.
+
+
+Last.fm habilitado como fonte complementar de Vídeo em
+`src/pages/metadata/video-editor.tsx`. Reutiliza os contratos `metadata:search`,
+`lastfm:album`, `lastfm:status` e `lastfm:artwork`, com `lastfmCandidate` e
+`lastfmDescription`; sem nova API, permissão ou dependência. Busca por título/artista,
+idioma pt/en, paginação vinculada à consulta e descarte de resposta atrasada usam
+os contratos/revisão existentes. Diretores originais não inicializam o artista da
+busca. Last.fm não recebe EAN/UPC e não oferece leitor de código na busca.
+
+Card, cópia individual/todos/pendentes, reconhecimento por atributo e mesclagem
+usam a mesma infraestrutura das fontes existentes. Notas e tags são os extras
+copiáveis dessa fonte; não mapear artista para Diretores nem a soma das durações
+das faixas para duração do vídeo. Descrição conserva faixas e atribuição; Notas
+recebe o texto literal. Capas usam `AlbumArtworkResource` com identidade validada,
+retentativa, cancelamento de carregamento e liberação por referência; o rascunho
+retém a imagem para aplicação mesmo ao remover o card.
+
+Suíte de 35 arquivos e tipos/build aprovados:
+`/tmp/collection-to-play-lastfm-video-tests.log` e
+`/tmp/collection-to-play-lastfm-video-build.log`. Chromium em
+`/tmp/collection-to-play-lastfm-video-browser-result.json` aprovou cinco cenários:
+completa, lápis, manual, configuração ausente/recuperada e capa falha/recuperada.
+Conferidos paginação sem duplicação, invalidação após editar artista, busca sem
+usar diretor/código, Notas literais, capa, tags, campos preservados, pendentes,
+mesclagem com TMDb e confirmação, envio seletivo capturado por mensagem e largura
+390 px. Cinco regressões de código de barras em Vídeo aprovadas em
+`/tmp/collection-to-play-lastfm-video-barcode-regression.log`. APIs/Libib simulados,
+sem gravação real ou consulta autenticada do show na API. Versão 0.5.0 mantida.

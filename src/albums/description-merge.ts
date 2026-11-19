@@ -7,7 +7,7 @@ export interface MergeCard {
   readonly descriptionError?: string | undefined;
 }
 export interface MergeSelection extends DescriptionSection {readonly service: MetadataServiceId; readonly albumId: string}
-const SECTION_ORDER: readonly DescriptionSectionField[] = ["title", "artists", "releaseType", "releaseDate", "label", "genres", "trackCount", "duration", "upc", "ean", "copyrights", "tags", "mbid", "about", "tracks", "description"];
+const SECTION_ORDER: readonly DescriptionSectionField[] = ["title", "artists", "directors", "releaseType", "releaseDate", "label", "genres", "trackCount", "duration", "upc", "ean", "copyrights", "tags", "mbid", "country", "format", "catalog", "barcodes", "brand", "model", "category", "about", "tracks", "description"];
 
 function blockPosition(text: string, block: string): number {
   let at = text.indexOf(block);
@@ -51,7 +51,7 @@ export class DescriptionMerge {
       const requiredAttribution=card?.description?.attribution;
       // An edited Last.fm history remains derived from that source; keep its credit until
       // the user explicitly removes the field or replaces it with another service.
-      if(field==="about"&&requiredAttribution?.fields.includes(field))continue;
+      if(requiredAttribution?.fields.includes(field))continue;
       this.chosen.delete(field);
     }
   }
@@ -74,6 +74,14 @@ export class DescriptionMerge {
     const card = this.cards.find(value => value.album.service === service && value.description);
     if (!card) throw new Error("Descrição indisponível.");
     for (const section of this.sections(card)) this.choose(service, section.field, false);
+  }
+  pendingSections(card: MergeCard): readonly DescriptionSection[] {
+    return this.sections(card).filter(section => section.text.trim() && !this.chosen.has(section.field));
+  }
+  choosePending(service: MetadataServiceId): void {
+    const card = this.cards.find(value => value.album.service === service && value.description);
+    if (!card) throw new Error("Descrição indisponível.");
+    for (const section of this.pendingSections(card)) this.choose(service, section.field, false);
   }
   edit(value: string): void {
     const next = value.replace(/\r\n?/g, "\n"), previous = this.text(), boundary = this.value.length;

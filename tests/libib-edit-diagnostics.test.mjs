@@ -192,3 +192,11 @@ test("diagnóstico confirma capa separadamente e recupera aviso após nova confi
  env.reporter.native("image",{confirmed:true,writeMayHaveOccurred:true,httpStatus:200});await env.flush();
  assert.equal(env.data.report.events.at(-1).code,"save-confirmed");assert.equal(libibDiagnosticSummary(env.data,version).tone,"neutral");
 });
+test('diagnóstico de extras confirma ou sinaliza incerteza sem registrar valores dos campos',async()=>{
+ const env=environment();
+ env.reporter.native('extra',{confirmed:false,writeMayHaveOccurred:true,code:'network',value:'private-notes'});await env.flush();
+ assert.equal(env.data.report.events.at(-1).stage,'extra');assert.equal(env.data.report.events.at(-1).code,'save-unconfirmed');
+ assert.equal(JSON.stringify(env.data).includes('private-notes'),false);
+ env.reporter.native('extra',{confirmed:true,writeMayHaveOccurred:true,httpStatus:200});await env.flush();
+ assert.equal(env.data.report.events.at(-1).code,'save-confirmed');
+});

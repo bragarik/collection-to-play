@@ -7,6 +7,7 @@ export interface LastfmAlbum {
   readonly tags: readonly string[];
   readonly tracks: readonly {readonly title: string;readonly number?: number;readonly durationSeconds?: number}[];
   readonly about?: string;readonly summary?: string;
+  readonly rawAbout?: string;readonly rawSummary?: string;
   readonly attribution: {readonly source: "Last.fm";readonly url: string;readonly license: "Last.fm API Terms of Service";readonly licenseUrl: string};
 }
 export type LastfmFailure = "invalid-query" | "configuration-required" | "invalid-key" | "not-found" | "mismatch" | "invalid-response" | "rate-limited" | "network" | "timeout" | "cancelled" | "unavailable";
@@ -18,7 +19,7 @@ const messages: Record<LastfmFailure,string> = {
   timeout:"O Last.fm demorou para responder. Tente novamente.",cancelled:"Consulta Last.fm cancelada.",unavailable:"O Last.fm está indisponível. Tente novamente mais tarde.",
 };
 export class LastfmError extends Error {constructor(readonly code:LastfmFailure){super(messages[code]);this.name="LastfmError";}}
-export interface LastfmDiagnostic {readonly stage:"request"|"response"|"result"|"failure";readonly durationMs:number;readonly status?:number;readonly code?:LastfmFailure;readonly tracks?:number;readonly hasAbout?:boolean}
+export interface LastfmDiagnostic {readonly stage:"request"|"response"|"result"|"failure";readonly durationMs:number;readonly status?:number;readonly code?:LastfmFailure;readonly tracks?:number;readonly hasAbout?:boolean;readonly count?:number;readonly method?:"album.getInfo"|"album.search"}
 const endpoint="https://ws.audioscrobbler.com/2.0/";
 function object(value:unknown):Record<string,unknown>{return value && typeof value==="object" && !Array.isArray(value)?value as Record<string,unknown>:{};}
 function text(value:unknown,max=512):string|undefined{return typeof value==="string" && value.trim() && value.length<=max?value.trim():undefined;}
@@ -67,18 +68,60 @@ export function parseLastfmAlbum(value:unknown,query:LastfmQuery):LastfmAlbum {
   const artworkUrl=[...images].reverse().map(value=>httpUrl(object(value)["#text"],["lastfm.freetls.fastly.net","lastfm-img2.akamaized.net"])).find(Boolean);
   return {status:tracks.length||about||summary||validMbid?"ready":"empty",title,artist,url,requestedLanguage:query.language,tags,tracks,
     ...(validMbid?{mbid:validMbid}:{}),...(artworkUrl?{artworkUrl}:{}),...(about?{about}:{}),...(summary?{summary}:{}),
+    ...(typeof wiki["content"] === "string" && wiki["content"].trim() ? {rawAbout: wiki["content"]} : {}),
+    ...(typeof wiki["summary"] === "string" && wiki["summary"].trim() ? {rawSummary: wiki["summary"]} : {}),
     attribution:{source:"Last.fm",url,license:"Last.fm API Terms of Service",licenseUrl:"https://www.last.fm/api/tos"}};
+}
+export type LastfmAlbumMatch = Pick<LastfmAlbum, "title" | "artist" | "url" | "artworkUrl" | "requestedLanguage">;
+export interface LastfmSearchPage {readonly albums: readonly LastfmAlbumMatch[]; readonly page: number; readonly pages: number}
+interface LastfmRequestOptions {signal?: AbortSignal; onDiagnostic?: (event: LastfmDiagnostic) => void}
+export function parseLastfmSearch(value: unknown, language: LastfmLanguage, page: number): LastfmSearchPage {
+  const results = object(object(value)["results"]), matches = object(results["albummatches"]);
+  const raw = matches["album"];
+  const total = Number(results["opensearch:totalResults"]), perPage = Number(results["opensearch:itemsPerPage"]);
+  if (!Object.hasOwn(results, "albummatches") || !Number.isSafeInteger(total) || total < 0 ||
+    total > 0 && (!Number.isSafeInteger(perPage) || perPage < 1 || perPage > 200) ||
+    raw !== undefined && !Array.isArray(raw) && (!raw || typeof raw !== "object")) throw new LastfmError("invalid-response");
+  const unique = new Map<string, LastfmAlbumMatch>();
+  for (const item of (Array.isArray(raw) ? raw : raw ? [raw] : []).slice(0, 200)) {
+    const data = object(item), title = text(data["name"], 200), artist = text(data["artist"], 200);
+    if (!title || !artist) continue;
+    try {
+      const album = parseLastfmAlbum({album: {name: title, artist, url: data["url"], image: data["image"]}}, {title, artist, language});
+      unique.set(identity(artist) + "\n" + identity(title), {title: album.title, artist: album.artist, url: album.url,
+        requestedLanguage: language, ...(album.artworkUrl ? {artworkUrl: album.artworkUrl} : {})});
+    } catch { /* A malformed match must not become a selectable album. */ }
+  }
+  return {albums: [...unique.values()], page, pages: Math.max(1, Math.min(100, Math.ceil(total / (perPage || 25))))};
 }
 export class LastfmClient {
   constructor(private readonly environment:{key():Promise<string|undefined>;fetch?:typeof fetch;timeoutMs?:number}) {}
-  async album(value:unknown,options:{signal?:AbortSignal;onDiagnostic?:(event:LastfmDiagnostic)=>void}={}):Promise<LastfmAlbum> {
-    const started=Date.now(),emit=(stage:LastfmDiagnostic["stage"],fields:Omit<LastfmDiagnostic,"stage"|"durationMs">={})=>options.onDiagnostic?.({stage,durationMs:Math.max(0,Date.now()-started),...fields});
+  album(value: unknown, options: LastfmRequestOptions = {}): Promise<LastfmAlbum> {
+    return this.request(() => {
+      const query = lastfmQuery(value);
+      return {params: {method: "album.getInfo" as const, artist: query.artist, album: query.title, lang: query.language, autocorrect: "0"},
+        parse: (data: unknown) => parseLastfmAlbum(data, query),
+        diagnostic: (album: LastfmAlbum) => ({tracks: album.tracks.length, hasAbout: Boolean(album.about || album.summary)})};
+    }, options);
+  }
+  search(value: unknown, options: LastfmRequestOptions & {page?: number} = {}): Promise<LastfmSearchPage> {
+    return this.request(() => {
+      const input = object(value), title = text(input["title"], 200), language = input["language"], page = options.page ?? 1;
+      if (!title || language !== "pt" && language !== "en" || !Number.isSafeInteger(page) || page < 1 || page > 100) throw new LastfmError("invalid-query");
+      return {params: {method: "album.search" as const, album: title, limit: "25", page: String(page)},
+        parse: (data: unknown) => parseLastfmSearch(data, language, page), diagnostic: (result: LastfmSearchPage) => ({count: result.albums.length})};
+    }, options);
+  }
+  private async request<T>(operation: () => {params: Record<string, string> & {method: "album.getInfo" | "album.search"}; parse(data: unknown): T;
+    diagnostic(result: T): {tracks?: number; hasAbout?: boolean; count?: number}}, options: LastfmRequestOptions): Promise<T> {
+    let method: "album.getInfo" | "album.search" | undefined;
+    const started=Date.now(),emit=(stage:LastfmDiagnostic["stage"],fields:Omit<LastfmDiagnostic,"stage"|"durationMs">={})=>options.onDiagnostic?.({stage,durationMs:Math.max(0,Date.now()-started),...(method ? {method} : {}),...fields});
     const timeout=AbortSignal.timeout(this.environment.timeoutMs??20000),signal=options.signal?AbortSignal.any([options.signal,timeout]):timeout;
     let status:number|undefined;
     try {
-      const query=lastfmQuery(value);signal.throwIfAborted();const key=await this.environment.key();signal.throwIfAborted();
+      const task=operation();method=task.params.method;signal.throwIfAborted();const key=await this.environment.key();signal.throwIfAborted();
       if(!key||!/^[\da-f]{32}$/i.test(key))throw new LastfmError("configuration-required");
-      const url=new URL(endpoint);url.search=new URLSearchParams({method:"album.getInfo",api_key:key,artist:query.artist,album:query.title,lang:query.language,autocorrect:"0",format:"json"}).toString();
+      const url=new URL(endpoint);url.search=new URLSearchParams({...task.params,api_key:key,format:"json"}).toString();
       emit("request");const response=await (this.environment.fetch??fetch)(url.href,{credentials:"omit",redirect:"error",signal});status=response.status;emit("response",{status});
       if(status===429)throw new LastfmError("rate-limited");
       if(status>=500)throw new LastfmError("unavailable");
@@ -87,7 +130,7 @@ export class LastfmClient {
       const error=object(data)["error"];
       if(error!==undefined)throw new LastfmError(error===10||error===26?"invalid-key":error===29?"rate-limited":error===6?(status===404?"not-found":"invalid-query"):"unavailable");
       if(!response.ok)throw new LastfmError(status===404?"not-found":status===403?"invalid-key":"unavailable");
-      const result=parseLastfmAlbum(data,query);emit("result",{status,tracks:result.tracks.length,hasAbout:Boolean(result.about||result.summary)});return result;
+      const result=task.parse(data);emit("result",{status,...task.diagnostic(result)});return result;
     } catch(error) {
       const failure=new LastfmError(options.signal?.aborted?"cancelled":timeout.aborted?"timeout":error instanceof LastfmError?error.code:"network");
       emit("failure",{...(status!==undefined?{status}:{}),code:failure.code});throw failure;

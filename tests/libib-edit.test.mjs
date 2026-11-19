@@ -47,6 +47,14 @@ test("carrega os três valores juntos sem devolver HTML ou metadados privados", 
   assert.equal(init.body.toString(), "item_type=music");
   assert.equal(JSON.stringify(result).includes("private-"), false);
 });
+test('códigos de busca são preservados mesmo sem controle editável, sem converter valores numéricos',async()=>{
+ const data=loaded();data.item.ean_isbn13='7898285415687';data.item.upc_isbn10='036000291452';
+ const v=setup([Response.json(data)]);const snapshot=await v.client.load(target);
+ assert.equal(snapshot.ean,'7898285415687');assert.equal(snapshot.upc,'036000291452');assert.equal(snapshot.extraGroups,undefined);
+ data.item.ean_isbn13='inválido';data.item.upc_isbn10=36000291452;
+ const invalid=await setup([Response.json(data)]).client.load(target);
+ assert.equal(invalid.ean,undefined);assert.equal(invalid.upc,undefined);
+});
 
 test("título relê e preserva override atual, usa FormData sem boundary fixo e confirma só esse campo", async () => {
   const value = setup([Response.json(loaded()), success()]);

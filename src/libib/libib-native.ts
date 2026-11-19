@@ -2,11 +2,15 @@ import {descriptionText, assertDescriptionReplacement} from "../albums/album-des
 import {validateArtworkFile} from "./libib-metadata.js";
 import {isSupportedCatalogUrl} from "../shared/contracts.js";
 import type {LibibEditErrorCode} from "./libib-edit.js";
+import {manualEntryFields} from "../shared/manual-entry-fields.js";
+import {readLibibItemFields, prepareLibibItemFields, validateLibibItemText, type LibibTextControl} from "./libib-item-fields.js";
+import {isQuickNativeField} from "./libib-quick-fields.js";
 
 export type NativeSaveRequest = {readonly joinId: string; readonly libraryId: string; readonly media?: "music" | "movie"} & (
   | {readonly field: "title" | "creators"; readonly value: string; readonly titleOverride?: string}
   | {readonly field: "description"; readonly value: string; readonly expectedDescription: string; readonly descriptionConfirmed: true}
   | {readonly field: "image"; readonly value: File}
+  | {readonly field: "extra"; readonly nativeField: string; readonly value: Record<string, string>; readonly expectedValues: Record<string, string>}
 );
 export interface NativeSaveOutcome {
   readonly confirmed: boolean;
@@ -36,6 +40,23 @@ export function parseNativeSaveRequest(value: unknown): NativeSaveRequest | unde
   if (value["media"] !== undefined && value["media"] !== "music" && value["media"] !== "movie") return undefined;
   const media = value["media"] === "movie" ? {media: "movie" as const} : {};
   const field = value["field"], text = value["value"], override = value["titleOverride"];
+  if (field === "extra") {
+    const nativeField = value["nativeField"], expected = value["expectedValues"];
+    if (typeof nativeField !== "string" || !isQuickNativeField(nativeField) || ["title", "creators", "description", "image"].includes(nativeField) ||
+      !record(text) || !record(expected) || !Object.keys(text).length || Object.keys(expected).length > 16) return undefined;
+    const definitions = manualEntryFields(value["media"] === "movie" ? "movie" : "music");
+    const keys = definitions.map(field => field.key as string);
+    if (Object.entries(expected).some(([key, value]) => !keys.includes(key) || typeof value !== "string" || value.length > 200_000)) return undefined;
+    try {
+      for (const [key, value] of Object.entries(text)) {
+        const definition = definitions.find(field => field.key === key);
+        if (!definition || !Object.hasOwn(expected, key)) return undefined;
+        validateLibibItemText(definition.key, value);
+      }
+    } catch {return undefined;}
+    return {...media, joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, nativeField,
+      value: Object.fromEntries(Object.entries(text)) as Record<string, string>, expectedValues: Object.fromEntries(Object.entries(expected)) as Record<string, string>};
+  }
   if (field === "description") {
     try {return value["descriptionConfirmed"] === true && typeof value["expectedDescription"] === "string" && value["expectedDescription"].length <= 200_000
       ? {...media, joinId: value["joinId"] as string, libraryId: value["libraryId"] as string, field, value: descriptionText(text), expectedDescription: value["expectedDescription"], descriptionConfirmed: true} : undefined;}
@@ -81,7 +102,7 @@ export async function saveLibibNativeField(
   if (currentEditor(page.document, request) !== root) return fail("invalid-context");
   const data = jquery(root);
   if (String(data.data("join-id")) !== request.joinId || String(data.data("library-id")) !== request.libraryId || data.data("item-type") !== (request.media ?? "music")) return fail("invalid-context");
-  const field = root.querySelector<HTMLElement>(`.jump-list [data-key="${request.field}"]`);
+  const field = root.querySelector<HTMLElement>(`.jump-list [data-key="${request.field === "extra" ? request.nativeField : request.field}"]`);
   const save = root.querySelector<HTMLButtonElement>("#jump-cover-save");
   if (!field || !save || save.disabled || save.classList.contains("loading")) return fail("invalid-context");
   try {jquery(field).trigger("click");} catch {return fail("invalid-context");}
@@ -89,18 +110,26 @@ export async function saveLibibNativeField(
   const selector = request.field === "description" ? 'textarea[name="description"],input[name="description"]' : `input[name="${request.field}"]`;
   const input = form?.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
   const override = form?.querySelector<HTMLInputElement>('input[name="title_override"]');
-  if (!form || !input || input.disabled || form.querySelectorAll(selector).length !== 1 || (request.field === "title" && !override)) return fail("invalid-context");
+  if (!form) return fail("invalid-context");
+  let extraValues: Map<LibibTextControl, string> | undefined;
+  if (request.field === "extra") {
+    const controls = readLibibItemFields(form, request.media ?? "music");
+    const named = [...form.querySelectorAll<HTMLInputElement>("input[name],textarea[name],select[name]")];
+    if (named.length !== controls.size || controls.size !== Object.keys(request.expectedValues).length ||
+      [...controls].some(([key, control]) => !Object.hasOwn(request.expectedValues, key) || control.value !== request.expectedValues[key])) return fail("invalid-context");
+    try {extraValues = prepareLibibItemFields(controls, request.value);} catch {return fail("invalid-input");}
+  } else if (!input || input.disabled || form.querySelectorAll(selector).length !== 1 || (request.field === "title" && !override)) return fail("invalid-context");
   if (request.field === "description") {
     try {
-      if (input.readOnly || input.getClientRects && !input.getClientRects().length || input.tagName !== "TEXTAREA" && !(input.tagName === "INPUT" && input.type === "text") || input.maxLength >= 0 && request.value.length > input.maxLength) return fail("invalid-context");
+      if (!input || input.readOnly || input.getClientRects && !input.getClientRects().length || input.tagName !== "TEXTAREA" && !(input.tagName === "INPUT" && input.type === "text") || input.maxLength >= 0 && request.value.length > input.maxLength) return fail("invalid-context");
       assertDescriptionReplacement(input.value, {confirmed: request.descriptionConfirmed, expected: request.expectedDescription});
     } catch {return fail("invalid-context");}
   }
-  const allowed = request.field === "title" ? ["title", "title_override"] : [request.field];
+  const allowed = request.field === "title" ? ["title", "title_override"] : request.field === "extra" ? Object.keys(request.expectedValues) : [request.field];
   if ([...form.querySelectorAll<HTMLInputElement>("input[name],textarea[name],select[name]")].some(control => !allowed.includes(control.name))) return fail("invalid-context");
   if (currentEditor(page.document, request) !== root || signal.aborted) return fail("invalid-context");
   if (request.field === "image") {
-    if (input.type !== "file" || input.form !== form || !input.isConnected || input.classList.contains("no-post")) return fail("invalid-context");
+    if (!input || input.type !== "file" || input.form !== form || !input.isConnected || input.classList.contains("no-post")) return fail("invalid-context");
     try {
       const Transfer = page.document.defaultView?.DataTransfer;
       if (!Transfer) return fail("invalid-context");
@@ -108,12 +137,15 @@ export async function saveLibibNativeField(
       (input as HTMLInputElement).files = transfer.files;
       if ((input as HTMLInputElement).files?.length !== 1 || (input as HTMLInputElement).files?.[0]?.size !== request.value.size) return fail("invalid-context");
     } catch {return fail("invalid-context");}
-  } else input.value = request.value;
+  } else if (request.field === "extra") {
+    for (const [control, value] of extraValues!) control.value = value;
+  } else if (input) input.value = request.value;
   if (request.field === "title" && override) override.value = request.titleOverride!;
   const controls = [...form.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>("input,button,select,textarea")].map(control => ({control, disabled: control.disabled}));
   const namespace = `.collectionToPlay${crypto.randomUUID().replaceAll("-", "")}`;
   const bus = jquery(page.document);
   let xhr: NativeXHR | undefined;
+  let mismatchedPayload = false;
   return new Promise(resolve => {
     let settled = false;
     const finish = (outcome: NativeSaveOutcome, abortXHR = false): void => {
@@ -134,17 +166,34 @@ export async function saveLibibNativeField(
         return url.origin === page.location.origin && url.pathname === "/quickedit/update-field/submit" &&
           String(settings["type"] ?? settings["method"]).toUpperCase() === "POST" && body instanceof FormData &&
           body.get("join_id") === request.joinId && body.get("library_id") === request.libraryId && body.get("item_type") === (request.media ?? "music") &&
-          (request.field === "image" ? (() => {
+          (request.field === "extra" ? (() => {
+            const expected = {...request.expectedValues, ...request.value};
+            return Object.entries(expected).every(([key, value]) => body.getAll(key).length === 1 && body.get(key) === value) &&
+              [...body.keys()].every(key => ["join_id", "library_id", "item_type", ...Object.keys(expected)].includes(key));
+          })() : request.field === "image" ? (() => {
             const file = body.get("image-0");
             return file instanceof File && file.size === request.value.size && file.name === request.value.name && file.type === request.value.type &&
               [...body.keys()].every(key => ["join_id", "library_id", "item_type", "image-0"].includes(key));
           })() : body.get(request.field) === request.value && (request.field !== "title" || body.get("title_override") === request.titleOverride));
       } catch {return false;}
     };
-    bus.on(`ajaxSend${namespace}`, (_event, candidate, settings) => {if (!xhr && matches(settings)) xhr = candidate;});
+    bus.on(`ajaxSend${namespace}`, (_event, candidate, settings) => {
+      if (xhr) return;
+      if (matches(settings)) {xhr = candidate; return;}
+      if (request.field !== "extra") return;
+      try {
+        const url = new URL(String(settings["url"]), page.location.href), body = settings["data"];
+        if (url.origin === page.location.origin && url.pathname === "/quickedit/update-field/submit" &&
+          String(settings["type"] ?? settings["method"]).toUpperCase() === "POST" && body instanceof FormData &&
+          body.get("join_id") === request.joinId && body.get("library_id") === request.libraryId && body.get("item_type") === (request.media ?? "music")) {
+          xhr = candidate; mismatchedPayload = true;
+        }
+      } catch { /* Unrelated requests do not confirm this write. */ }
+    });
     bus.on(`ajaxComplete${namespace}`, (_event, candidate) => {
       if (candidate !== xhr) return;
       if (candidate.status < 200 || candidate.status >= 300) {finish(fail("http", true, candidate.status)); return;}
+      if (mismatchedPayload) {finish(fail("invalid-response", true, candidate.status)); return;}
       let result: unknown;
       try {result = JSON.parse(candidate.responseText);} catch {finish(fail("invalid-response", true, candidate.status)); return;}
       if (!record(result) || typeof result["outcome"] !== "string") {finish(fail("invalid-response", true, candidate.status)); return;}

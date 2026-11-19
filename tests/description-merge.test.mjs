@@ -79,3 +79,19 @@ test('limite menor inclui fontes visíveis e não corta o texto',()=>{
  assert.throws(()=>model.result(undefined,body.length));assert.ok(model.text().length>body.length);
  model.setIncludeSources(false);assert.equal(model.result(undefined,body.length).text,body);
 });
+
+test('adiciona só blocos pendentes preservando escolhas, texto manual e fontes',()=>{
+ const first=card('deezer'),second=card('apple-music',{label:'Gravadora exclusiva'});
+ const model=new DescriptionMerge([first,second]);model.setIncludeSources(true);
+ model.choose('deezer','genres');model.choose('apple-music','tracks');
+ model.edit(model.text().replace('\n\nFontes:', '\nNota manual\n\nFontes:'));
+ model.choosePending('apple-music');
+ assert.equal(model.selection('genres').service,'deezer');
+ assert.equal(model.selection('tracks').service,'apple-music');
+ assert.match(model.text(),/Gêneros: Pop/);assert.doesNotMatch(model.text(),/Gêneros: Rock/);
+ assert.match(model.text(),/Nota manual/);assert.match(model.text(),/Gravadora: Gravadora exclusiva/);
+ assert.equal(model.pendingSections(second).length,0);
+ const before=model.result();model.choosePending('apple-music');assert.deepEqual(model.result(),before);
+ model.choose('apple-music','label');assert.ok(model.pendingSections(second).some(section=>section.field==='label'));
+ model.choosePending('apple-music');assert.equal(model.selection('label').service,'apple-music');
+});

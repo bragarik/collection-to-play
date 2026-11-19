@@ -597,6 +597,8 @@ test("estado por serviço informa conexão e link sem expor sessão ou exigir pr
       {id: "apple-music", name: "iTunes", requiresAuthentication: false, connected: true},
       {id: "deezer", name: "Deezer", requiresAuthentication: false, connected: true},
       {id: "lastfm", name: "Last.fm", requiresAuthentication: false, connected: false},
+      {id: "discogs", name: "Discogs", requiresAuthentication: true, connected: false},
+      {id: "upcitemdb", name: "UPCitemdb", requiresAuthentication: false, connected: true},
     ]);
     const query = {type: "metadata:search", service: "spotify", title: "Discovery", artist: "Daft Punk", sourceUrl: libraryUrl};
     const offline = (await send(query, extension)).data;
@@ -607,6 +609,31 @@ test("estado por serviço informa conexão e link sem expor sessão ou exigir pr
     assert.equal((await send({type: "metadata:services"}, extension)).data.services[0].connected, true);
     assert.equal((await send(query, extension)).data.connectionRequired, false);
   } finally {stored.set("spotify.session", session);}
+});
+test('Last.fm busca título sem artista com paginação vinculada e consulta detalhes somente na escolha',async()=>{
+ const oldFetch=globalThis.fetch,calls=[];const apiKey='b'.repeat(32);
+ stored.set('lastfm.apiKey',apiKey);
+ const title="Give 'Em the Boot III",artist='Various Artists',url='https://www.last.fm/music/Various+Artists/Give+%27Em+the+Boot+III';
+ try {
+  globalThis.fetch=async(value,init)=>{
+   const parsed=new URL(value);if(parsed.hostname!=='ws.audioscrobbler.com')return oldFetch(value,init);
+   calls.push(parsed.searchParams.get('method'));
+   if(parsed.searchParams.get('method')==='album.search')return Response.json({results:{'opensearch:totalResults':'40','opensearch:itemsPerPage':'25',albummatches:{album:[{name:title,artist,url}]}}});
+   return Response.json({album:{name:title,artist,url,tracks:{track:[{name:'Faixa',duration:'120'}]}}});
+  };
+  const message={type:'metadata:search',service:'lastfm',title,artist:'',language:'en',sourceUrl:libraryUrl};
+  const reply=await send(message,extension);assert.equal(reply.ok,true);
+  const candidate=reply.data.resolution.candidates[0];assert.equal(candidate.artists[0].name,artist);assert.equal(candidate.lastfm,undefined);assert.equal(candidate.id,url+'#en');
+  assert.deepEqual(calls,['album.search']);
+  const nextPage=reply.data.resolution.nextPage;assert.ok(nextPage);
+  const second=await send({...message,nextPage},extension);assert.equal(second.ok,true);
+  const before=calls.length;
+  assert.equal((await send({...message,title:'Outro',nextPage},extension)).ok,false);assert.equal(calls.length,before);
+  const selected=await send({type:'lastfm:album',title,artist,language:'en'},extension);assert.equal(selected.ok,true);assert.equal(selected.data.tracks.length,1);
+  assert.equal(calls.at(-1),'album.getInfo');
+  const direct=await send({...message,artist},extension);assert.equal(direct.ok,true);assert.ok(direct.data.resolution.candidates[0].lastfm);
+  assert.equal(calls.at(-1),'album.getInfo');assert.doesNotMatch(JSON.stringify(stored.get('lastfm.diagnostic')),new RegExp(apiKey+'|api_key|Various Artists'));
+ } finally {globalThis.fetch=oldFetch;stored.delete('lastfm.apiKey');stored.delete('lastfm.diagnostic');}
 });
 
 test("sessão revogada retorna caminho de conexão e atualiza o estado após falha real de autenticação", async () => {
@@ -926,4 +953,106 @@ test('configuração Spotify aceita somente página da extensão e invalida sess
   const info=(await send({type:'setup:get'},extension)).data;assert.equal(info.spotify.clientId,'b'.repeat(32));assert.equal(info.spotify.connected,false);
   assert.equal(stored.get('spotify.session'),undefined);assert.equal(stored.get('spotify.clientId'),'b'.repeat(32));
  } finally {await send({type:'spotify:configure',clientId:'a'.repeat(32)},extension);stored.set('spotify.session',before);}
+});
+
+test("Discogs usa credencial restrita à extensão e retorna somente metadados permitidos", async () => {
+  const token="discogs_private_test_token_123456";
+  const oldFetch=globalThis.fetch;
+  try {
+    assert.equal(await send({type:"discogs:configure",token}),undefined);
+    assert.deepEqual(await send({type:"discogs:configure",token},extension),{ok:true,data:{configured:true}});
+    assert.deepEqual(await send({type:"discogs:status"},extension),{ok:true,data:{configured:true}});
+    globalThis.fetch=async(url,init)=>{
+      assert.equal(new URL(url).origin,"https://api.discogs.com");
+      assert.equal(init.headers.Authorization,"Discogs token="+token);
+      return Response.json({id:9580466,title:"Raw",artists:[{name:"Ramones"}],country:"Brazil",released:"2004",
+        formats:[{name:"DVD",qty:"1"}],identifiers:[{type:"Barcode",value:"7898285415687"}],
+        tracklist:[{title:"Faixa",duration:"3:20",type_:"track"}],
+        images:[{uri:"https://restricted.example/cover.jpg"}],lowest_price:99});
+    };
+    const result=await send({type:"discogs:release",id:"9580466"},extension);
+    assert.equal(result.ok,true);
+    assert.equal(result.data.release.barcodes[0],"7898285415687");
+    assert.match(result.data.description.text,/Data provided by Discogs/);
+    assert.doesNotMatch(JSON.stringify(result),/restricted.example|lowest_price/);
+    const diagnostic=await send({type:"discogs:diagnostics"},extension);
+    assert.doesNotMatch(JSON.stringify(diagnostic),new RegExp(token+"|Authorization|restricted.example"));
+    assert.equal(diagnostic.data.events.at(-1).stage,"release");
+    await send({type:"discogs:clear"},extension);
+    assert.equal((await send({type:"discogs:status"},extension)).data.configured,false);
+  } finally {globalThis.fetch=oldFetch;stored.delete("discogs.token");stored.delete("discogs.diagnostic");}
+});
+
+test("exportação comum reúne serviços de música e vídeo sem credenciais dos novos serviços",async()=>{
+ const preference=stored.get("library.preferences");
+ stored.set("library.preferences",{version:1,service:"deezer",choices:[]});
+ const keys=["lastfm.diagnostic","tmdb.diagnostic","discogs.diagnostic"];
+ const previous=new Map(keys.map(key=>[key,stored.get(key)]));
+ try {
+  for(const key of keys)stored.set(key,{events:[{stage:"search",durationMs:40,status:200,count:1,query:"Raw",
+    token:"private_discogs_token",api_key:"private_tmdb_key",headers:{Authorization:"private_header"},body:"private_body"}]});
+  const reply=await send({type:"spotify:diagnostics"},extension);
+  assert.equal(reply.ok,true);
+  for(const service of ["lastfm","tmdb","discogs"])assert.equal(reply.data.searchByService[service].events[0].status,200);
+  assert.doesNotMatch(JSON.stringify(reply),/private_discogs_token|private_tmdb_key|private_header|private_body/);
+ } finally {
+  stored.set("library.preferences",preference);
+  for(const [key,value] of previous)if(value===undefined)stored.delete(key);else stored.set(key,value);
+ }
+});
+
+test('UPCitemdb no worker reutiliza pesquisa/descrição, preserva campos ausentes e usa diagnóstico compartilhado',async()=>{
+ const previousFetch=globalThis.fetch,previousNow=Date.now;
+ let clock=previousNow(),calls=0,mode='ok';Date.now=()=>clock;
+ const raw={title:'Ramones - Raw',ean:'0014381227826',upc:'014381227826',brand:'Image Entertainment',
+  description:'Texto de produto',category:'Media > Movies',images:['https://images.example.com/raw.jpg'],offers:[{price:99}],user_data:'private_payload'};
+ const direct={type:'upcitemdb:search',sourceUrl:libraryUrl,query:{title:'Raw',barcode:'014381227826',media:'movie'}};
+ try {
+  globalThis.fetch=async(url,init)=>{
+   const parsed=new URL(url);if(parsed.hostname==='images.example.com')return new Response('',{status:403});
+   calls++;assert.equal(parsed.origin,'https://api.upcitemdb.com');assert.equal(init.credentials,'omit');
+   assert.equal(init.headers.Authorization,undefined);
+   if(mode==='fail')return new Response('private_server_payload',{status:500});
+   if(mode==='limited')return new Response('private_quota_payload',{status:429,headers:{'Retry-After':'60'}});
+   if(mode==='paged')return Response.json({code:'OK',total:2,offset:parsed.searchParams.has('offset')?0:1,items:[raw]});
+   return Response.json({code:'OK',total:1,offset:0,items:[raw]});
+  };
+  for(const sender of [content,{...extension,id:'another-extension'},{...extension,url:'https://evil.example/'}]){
+   assert.equal(await send(direct,sender),undefined);
+  }
+  assert.equal(calls,0);
+  const found=await send(direct,extension);assert.equal(found.ok,true);assert.equal(calls,1);
+  const candidate=found.data.candidates[0];assert.deepEqual(candidate.artists,[]);assert.equal(candidate.ean,'0014381227826');
+  assert.equal(candidate.description.manualFields.publisher,undefined);assert.equal(candidate.description.manualFields.directors,undefined);
+  assert.equal(candidate.artworkUrl,'https://images.example.com/raw.jpg');assert.doesNotMatch(JSON.stringify(candidate),/private_payload|offers|price/);
+  const music=await send({type:'metadata:search',service:'upcitemdb',title:'Raw',artist:'',upc:'014381227826',sourceUrl:libraryUrl},extension);
+  assert.equal(music.ok,true);assert.equal(music.data.connectionRequired,false);assert.deepEqual(music.data.resolution.candidates[0].artists,[]);
+  assert.equal(calls,1,'Música e Vídeo compartilham cache de lookup');
+  const description=await send({type:'metadata:description',album:candidate,sourceUrl:libraryUrl},extension);
+  assert.equal(description.ok,true);assert.match(description.data.text,/Marca: Image Entertainment/);assert.equal(calls,1);
+  assert.equal((await send({...direct,sourceUrl:'https://evil.example/'},extension)).error.code,'invalid-query');
+  assert.equal((await send({type:'metadata:description',album:{...candidate,title:'Outro'},sourceUrl:libraryUrl},extension)).error.code,'invalid-response');
+  assert.equal((await send({type:'metadata:search',service:'upcitemdb',title:'Raw',artist:'',ean:'7898285415687',upc:'014381227826',sourceUrl:libraryUrl},extension)).error.code,'invalid-query');
+  assert.equal(calls,1);
+  assert.equal((await send({type:'preferences:set-service',service:'upcitemdb'},extension)).ok,false,'não entra na preferência de reprodução');
+  const image=await send({type:'metadata:artwork',album:candidate,sourceUrl:libraryUrl},extension);
+  assert.equal(image.ok,false);assert.equal(calls,1,'falha de imagem não consome consulta da API UPCitemdb');
+  clock+=16000;mode='fail';const failed=await send({...direct,query:{...direct.query,barcode:'7898285415687'}},extension);
+  assert.equal(failed.ok,false);assert.equal(failed.error.code,'unavailable');assert.doesNotMatch(JSON.stringify(failed),/private_server_payload/);
+  clock+=16000;mode='limited';const limited=await send({...direct,query:{...direct.query,barcode:'7898285415687'}},extension);
+  assert.equal(limited.error.code,'rate-limited');const before=calls;
+  assert.equal((await send({...direct,query:{...direct.query,barcode:'7898285415687'}},extension)).error.code,'rate-limited');assert.equal(calls,before);
+  assert.equal((await send(direct,extension)).ok,true,'cache continua disponível sem consumir quota');
+  clock+=61000;mode='paged';const paged=await send({...direct,query:{title:'Page',media:'movie'}},extension);
+  assert.ok(paged.data.nextPage);const cursor=paged.data.nextPage;
+  assert.equal((await send({...direct,sourceUrl:libraryUrl+'/other',query:{title:'Page',media:'movie',nextPage:cursor}},extension)).error.code,'invalid-query');
+  assert.equal((await send({...direct,query:{title:'Page',media:'music',nextPage:cursor}},extension)).error.code,'invalid-query');
+  clock+=16000;assert.equal((await send({...direct,query:{title:'Page',media:'movie',nextPage:cursor}},extension)).ok,true);
+  const exported=await send({type:'spotify:diagnostics'},extension);const log=exported.data.searchByService.upcitemdb;
+  assert.ok(log.events.some(event=>event.kind==='cache'));assert.ok(log.events.some(event=>event.status===429));
+  assert.doesNotMatch(JSON.stringify(log),/Ramones|014381227826|images.example|private_|Image Entertainment/);
+  stored.set('upcitemdb.diagnostic',{events:[{kind:'response',at:'2026-11-19T00:00:00Z',status:200,query:'private_query',body:'private_body',url:'private_url',headers:{Authorization:'private_header'}}]});
+  const projected=(await send({type:'spotify:diagnostics'},extension)).data.searchByService.upcitemdb;
+  assert.equal(projected.events[0].status,200);assert.doesNotMatch(JSON.stringify(projected),/private_|query|body|headers/);
+ } finally {globalThis.fetch=previousFetch;Date.now=previousNow;stored.delete('upcitemdb.diagnostic');stored.delete('upcitemdb.artworkDiagnostic');}
 });

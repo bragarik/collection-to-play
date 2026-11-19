@@ -26,3 +26,23 @@
 }
 
 .action-icon { display: inline-block; width: 16px; height: 16px; flex-shrink: 0; vertical-align: -0.15em; }
+
+/* Keep modal and iframe scrolling inside the extension's foreground surface. */
+html { overscroll-behavior: contain; scrollbar-gutter: stable; }
+html:has(dialog[open]) { overflow: hidden; }
+dialog { overscroll-behavior: contain; }
+
+.barcode-reader { box-sizing: border-box; width: min(560px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); margin: auto; padding: 0; overflow: auto; border: 1px solid var(--color-base-300); border-radius: var(--radius-box); color: var(--color-base-content); background: var(--color-base-100); font: 14px/1.5 system-ui, sans-serif; }
+.barcode-reader::backdrop { background: rgb(0 0 0 / 40%); }
+.barcode-reader-header { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: var(--color-base-100); border-bottom: 1px solid var(--color-base-300); z-index: 1; }
+.barcode-reader-header h2 { margin: 0; font-size: 17px; }
+.barcode-reader-body { padding: 16px; min-width: 0; }
+.barcode-reader-body p { overflow-wrap: anywhere; }
+.barcode-reader-camera { position: relative; overflow: hidden; background: #111; border-radius: var(--radius-field); }
+.barcode-reader video { display: block; width: 100%; max-height: 40dvh; object-fit: contain; background: #111; border-radius: var(--radius-field); }
+.barcode-reader-guide { position: absolute; box-sizing: border-box; left: 15%; top: 32.5%; width: 70%; height: 35%; border: 2px solid #4de0bb; border-radius: 6px; box-shadow: 0 0 0 100vmax rgb(0 0 0 / 45%); pointer-events: none; }
+.barcode-reader-review { display: grid; gap: 10px; margin: 12px 0; }
+.barcode-reader-review input { box-sizing: border-box; width: 100%; min-width: 0; font-family: monospace; letter-spacing: .08em; }
+.barcode-reader-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.barcode-reader-file { display: grid; gap: 6px; max-width: 100%; font-weight: 600; }
+.barcode-reader-file input { max-width: 100%; min-width: 0; font: inherit; }

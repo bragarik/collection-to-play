@@ -1,3 +1,4 @@
+import {createLibibManualEntry} from "../libib/libib-manual-entry.js";
 import {mountPlayerShell} from "../components/catalog-ui.js";
 import { isSupportedCatalogUrl, streamingName, type AlbumQuery, type AlbumOpenTarget, type AppReply } from "../shared/contracts.js";
 
@@ -13,6 +14,7 @@ const diagnosticPublisher = createLibibObservationPublisher({
   },
 });
 
+const manualEntry = createLibibManualEntry(document, path => chrome.runtime.getURL(path), () => selectedService);
 let selectedService = "spotify";
 const editor = createLibibEditor({document, pageUrl: () => location.href, service: () => selectedService, resourceUrl: path => chrome.runtime.getURL(path),
   recordDiagnostic: event => chrome.runtime.sendMessage({type: "library:edit-diagnostic", sourceUrl: location.href, event}),
@@ -53,6 +55,7 @@ let disposePlayer: (() => void) | undefined;
 function updateLibraryAction(): void {
   diagnosticPublisher.schedule();
   editor.sync();
+  manualEntry.sync();
   const existing = document.getElementById(hostId);
   if (!isSupportedCatalogUrl(location.href)) {
     disposePlayer?.(); disposePlayer = undefined; existing?.remove(); openAlbum = undefined;
@@ -130,4 +133,4 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) void
 setInterval(() => {
   if (!document.hidden) {void refreshService(); diagnosticPublisher.schedule();}
 }, 5000);
-window.addEventListener("pagehide", () => {diagnosticPublisher.stop(); editor.stop(); disposePlayer?.();});
+window.addEventListener("pagehide", () => {diagnosticPublisher.stop(); editor.stop(); manualEntry.stop(); disposePlayer?.();});

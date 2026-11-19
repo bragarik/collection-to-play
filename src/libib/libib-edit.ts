@@ -1,5 +1,7 @@
 import {descriptionLimit} from "../albums/album-description.js";
 import {isSupportedCatalogUrl} from "../shared/contracts.js";
+import {normalizeProductCode} from "../albums/identifiers.js";
+import {readQuickEditExtraGroups, type QuickEditExtraGroup} from "./libib-quick-fields.js";
 
 export interface LibibEditTarget {
   readonly joinId: string;
@@ -13,6 +15,9 @@ export interface LibibEditSnapshot {
   readonly creators: readonly string[];
   readonly description?: string;
   readonly descriptionMaxLength?: number;
+  readonly extraGroups?: readonly QuickEditExtraGroup[];
+  readonly ean?: string;
+  readonly upc?: string;
 }
 
 export type LibibEditOperation = "load" | "title" | "creators" | "image" | "description";
@@ -113,7 +118,12 @@ export class LibibEditClient {
     const control = typeof fields.description === "string" ? fields.description.match(/<(?:input|textarea)\b[^>]*\bname\s*=\s*["']description["'][^>]*>/i)?.[0] : undefined;
     const maximum = control?.match(/\smaxlength\s*=\s*(?:["'](\d+)["']|(\d+)(?=\s|\/?[>]))/i);
     const descriptionMaxLength = descriptionLimit(maximum ? Number(maximum[1] ?? maximum[2]) : undefined);
-    return {...(description !== undefined ? {description, descriptionMaxLength} : {}), target: current, title: item.title, titleOverride: item.title_override, creators: [...creators]};
+    const extraGroups = typeof DOMParser === "undefined" ? [] : readQuickEditExtraGroups(fields, item, this.options.media ?? "music");
+    const ean = normalizeProductCode(typeof item.ean_isbn13 === "string" ? item.ean_isbn13 : undefined);
+    const upc = normalizeProductCode(typeof item.upc_isbn10 === "string" ? item.upc_isbn10 : undefined);
+    return {...(description !== undefined ? {description, descriptionMaxLength} : {}), ...(extraGroups.length ? {extraGroups} : {}),
+      ...(ean ? {ean} : {}), ...(upc ? {upc} : {}),
+      target: current, title: item.title, titleOverride: item.title_override, creators: [...creators]};
   }
 
   async saveTitle(target: LibibEditTarget, title: string, signal?: AbortSignal): Promise<LibibFieldConfirmation> {

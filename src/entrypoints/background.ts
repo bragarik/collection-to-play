@@ -1,4 +1,9 @@
-import {lastfmCandidate, LastfmSource} from "../albums/lastfm-source.js";
+import {DiscogsClient, discogsCandidate, type DiscogsSearch, type DiscogsDiagnostic} from "../streamings/discogs.js";
+import {discogsDescription} from "../albums/discogs-description.js";
+import {UpcitemdbClient, type UpcitemdbQuery} from "../streamings/upcitemdb.js";
+import {upcitemdbCandidate, upcitemdbDescription} from "../albums/upcitemdb-source.js";
+import type {MetadataSearchInput, UpcitemdbSearchReply} from "../shared/contracts.js";
+import {lastfmCandidate, lastfmSearchCandidate, LastfmSource} from "../albums/lastfm-source.js";
 import {LastfmClient, LastfmError, isLastfmSourceId, type LastfmAlbum, type LastfmDiagnostic} from "../streamings/lastfm.js";
 import {LastfmSettings} from "../shared/lastfm-settings.js";
 import {loadAlbumDescription, type DescriptionDiagnostic} from "../streamings/album-description.js";
@@ -48,6 +53,32 @@ const lastfmSettings = new LastfmSettings({
   async clear() {await storageReady;await chrome.storage.local.remove("lastfm.apiKey");},
 });
 const lastfm = new LastfmClient({key: () => lastfmSettings.apiKey()});
+let upcitemdbWrites: Promise<void> = Promise.resolve();
+const upcitemdbDiagnosticFields = ["kind", "at", "durationMs", "method", "status", "remaining", "returned", "waitMs", "code", "phase", "timeoutMs", "hasHttpResponse", "aborted", "callerAborted", "retryAfterSeconds", "browserErrorName", "browserErrorCode"];
+const upcitemdb = new UpcitemdbClient({diagnostic(event) {
+  upcitemdbWrites = upcitemdbWrites.catch(() => {}).then(async () => {
+    await storageReady;
+    const saved = (await chrome.storage.local.get("upcitemdb.diagnostic"))["upcitemdb.diagnostic"] as {events?: unknown[]} | undefined;
+    const safe = Object.fromEntries(upcitemdbDiagnosticFields.flatMap(field => field in event ? [[field, (event as unknown as Record<string, unknown>)[field]]] : []));
+    if (event.kind === "failure") {
+      safe["browserErrorName"] = event.browserError.name;
+      if (event.browserError.code ?? event.browserError.cause?.code) safe["browserErrorCode"] = event.browserError.code ?? event.browserError.cause?.code;
+    }
+    await chrome.storage.local.set({"upcitemdb.diagnostic": {schemaVersion: 1, events: [...(Array.isArray(saved?.events) ? saved.events.slice(-49) : []), safe]}});
+  }).catch(() => {});
+}});
+let discogsWrites: Promise<void> = Promise.resolve();
+const discogs = new DiscogsClient({
+  async token() {await storageReady;const data = await chrome.storage.local.get("discogs.token");return typeof data["discogs.token"] === "string" ? data["discogs.token"] : undefined;},
+  diagnostic(event: DiscogsDiagnostic) {
+    discogsWrites = discogsWrites.catch(() => {}).then(async () => {
+      await storageReady;
+      const saved = (await chrome.storage.local.get("discogs.diagnostic"))["discogs.diagnostic"] as {events?: unknown[]} | undefined;
+      const events = Array.isArray(saved?.events) ? saved.events.slice(-49) : [];
+      await chrome.storage.local.set({"discogs.diagnostic": {schemaVersion: 1, events: [...events, event]}});
+    });
+  },
+});
 const preferences = new LibraryPreferences({
   async load() { await storageReady; return (await chrome.storage.local.get("library.preferences"))["library.preferences"] as unknown; },
   async save(value) { await storageReady; await chrome.storage.local.set({ "library.preferences": value }); },
@@ -77,6 +108,29 @@ async function queryLastfm(value: unknown) {
   const events: LastfmDiagnostic[]=[];
   try {return await lastfm.album(value,{onDiagnostic:event=>{if(events.length<10)events.push(event);}});}
   finally {try {await storageReady;await chrome.storage.local.set({"lastfm.diagnostic":{updatedAt:new Date().toISOString(),events}});}catch{/* Diagnostics must not replace the result. */}}
+}
+async function searchLastfm(value: unknown, page: number) {
+  const events: LastfmDiagnostic[]=[];
+  try {return await lastfm.search(value,{page,onDiagnostic:event=>{if(events.length<10)events.push(event);}});}
+  finally {try {await storageReady;await chrome.storage.local.set({"lastfm.diagnostic":{updatedAt:new Date().toISOString(),events}});}catch{/* Diagnostics must not replace the result. */}}
+}
+async function searchUpcitemdb(value: unknown, sourceUrl: unknown): Promise<UpcitemdbSearchReply> {
+  if (!value || typeof value !== "object" || Array.isArray(value) || typeof sourceUrl !== "string" ||
+    sourceUrl.length > 2048 || !isSupportedCatalogUrl(sourceUrl)) throw new StreamingError("invalid-query", "Consulta UPCitemdb inválida.");
+  const input = value as Record<string, unknown>;
+  if (typeof input["title"] !== "string" || input["title"].length > 512 ||
+    input["artist"] !== undefined && (typeof input["artist"] !== "string" || input["artist"].length > 200) ||
+    input["barcode"] !== undefined && (typeof input["barcode"] !== "string" || input["barcode"].length > 32) ||
+    !["music", "movie"].includes(String(input["media"]))) throw new StreamingError("invalid-query", "Consulta UPCitemdb inválida.");
+  const barcode = normalizeProductCode(input["barcode"] as string | undefined);
+  if (input["barcode"] && !barcode) throw new StreamingError("invalid-query", "Informe um EAN ou UPC válido.");
+  const query: MetadataSearchInput = {title: input["title"].trim(), artist: String(input["artist"] ?? "").trim(), sourceUrl,
+    ...(barcode ? {[barcode.length === 12 ? "upc" : "ean"]: barcode} : {})};
+  const cursor = readMetadataPage("upcitemdb", query, input["nextPage"]);
+  const result = await upcitemdb.search({title: query.title, artist: query.artist, media: input["media"] as UpcitemdbQuery["media"],
+    ...(barcode ? {barcode} : {}), ...(cursor ? {nextPage: cursor} : {})});
+  return {mode: result.mode, total: result.total, candidates: result.products.map(upcitemdbCandidate),
+    ...(result.nextPage ? {nextPage: bindMetadataPage("upcitemdb", query, result.nextPage)} : {})};
 }
 async function openStreamingAlbum(album: AlbumCandidate, target: AlbumOpenTarget): Promise<void> {
   const service = await requireStreamingPreference();
@@ -151,7 +205,29 @@ async function fetchAndRecordDescription(value: unknown) {
 async function exportSearchDiagnostic(): Promise<unknown> {
   await storageReady;
   const service = await preferences.getService();
-  await artworkWrites;await descriptionWrites;
+  await artworkWrites;await descriptionWrites;await discogsWrites.catch(() => {});await upcitemdbWrites.catch(() => {});
+  const searchByService: Record<string, unknown> = {};
+  for (const id of ["spotify", "youtube-music", "apple-music", "deezer"]) {
+    const key = `${id}.searchDiagnostic`;
+    const value = (await chrome.storage.local.get(key))[key];
+    if (value) searchByService[id] = value;
+  }
+  const diagnosticFields = ["at", "stage", "durationMs", "status", "code", "tracks", "hasAbout", "method", "query", "language", "count", "outcome", "page"];
+  for (const id of ["lastfm", "tmdb", "discogs", "upcitemdb"]) {
+    const key = `${id}.diagnostic`;
+    const saved = (await chrome.storage.local.get(key))[key] as {updatedAt?: string; events?: Record<string, unknown>[]} | undefined;
+    if (!Array.isArray(saved?.events) || !saved.events.length) continue;
+    const events = saved.events.slice(-50).filter(event => event && typeof event === "object").map(event => {
+      const safe: Record<string, string | number | boolean> = {};
+      for (const field of id === "upcitemdb" ? upcitemdbDiagnosticFields : diagnosticFields) {
+        const value = event[field];
+        if (typeof value === "string") safe[field] = value.slice(0, field === "query" ? 512 : 100);
+        else if (typeof value === "boolean" || typeof value === "number" && Number.isFinite(value)) safe[field] = value;
+      }
+      return safe;
+    });
+    searchByService[id] = {service: id, events};
+  }
   const descriptionEntries = await Promise.all(METADATA_SERVICE_IDS.map(async id => [id, (await chrome.storage.local.get(`${id}.descriptionDiagnostic`))[`${id}.descriptionDiagnostic`]] as const));
   const descriptionByService = Object.fromEntries(descriptionEntries.filter(([, value]) => Boolean(value)));
   const artworkEntries = await Promise.all(METADATA_SERVICE_IDS.map(async id => {
@@ -160,9 +236,9 @@ async function exportSearchDiagnostic(): Promise<unknown> {
   }));
   const artworkByService = Object.fromEntries(artworkEntries.filter(([, value]) => Boolean(value)));
   const attachArtwork = (value: unknown): unknown => {
-    if (!Object.keys(artworkByService).length && !Object.keys(descriptionByService).length) return value ?? null;
+    if (!Object.keys(searchByService).length && !Object.keys(artworkByService).length && !Object.keys(descriptionByService).length) return value ?? null;
     return {...(value && typeof value === "object" ? value : {format: "collection-to-play-search", schemaVersion: 1,
-      extensionVersion: chrome.runtime.getManifest().version, service: service ?? "spotify", batches: []}), ...(Object.keys(artworkByService).length ? {artworkByService} : {}), ...(Object.keys(descriptionByService).length ? {descriptionByService} : {})};
+      extensionVersion: chrome.runtime.getManifest().version, service: service ?? "spotify", batches: []}), ...(Object.keys(searchByService).length ? {searchByService} : {}), ...(Object.keys(artworkByService).length ? {artworkByService} : {}), ...(Object.keys(descriptionByService).length ? {descriptionByService} : {})};
   };
   if (service === "deezer" || service === "youtube-music" || service === "apple-music") {
     const key = `${service}.searchDiagnostic`;
@@ -219,9 +295,45 @@ function sameDiagnosticQuery(value: unknown, query: AlbumQuery): boolean {
 
 async function dispatch(message: Record<string, unknown>): Promise<unknown> {
   switch (message["type"]) {
+    case "upcitemdb:search": return searchUpcitemdb(message["query"], message["sourceUrl"]);
+    case "discogs:status": {
+      await storageReady;
+      return {configured: Boolean((await chrome.storage.local.get("discogs.token"))["discogs.token"])};
+    }
+    case "discogs:configure": {
+      const token = message["token"];
+      if (typeof token !== "string" || !/^[a-zA-Z0-9_-]{20,256}$/.test(token.trim())) throw new StreamingError("invalid-query", "Confira o token pessoal do Discogs.");
+      await storageReady;
+      await chrome.storage.local.set({"discogs.token": token.trim()});
+      return {configured: true};
+    }
+    case "discogs:clear":
+      await storageReady;
+      await chrome.storage.local.remove("discogs.token");
+      return {configured: false};
+    case "discogs:diagnostics": {
+      await discogsWrites.catch(() => {});
+      await storageReady;
+      const saved = (await chrome.storage.local.get("discogs.diagnostic"))["discogs.diagnostic"] as {events?: Record<string, unknown>[]} | undefined;
+      return {schemaVersion: 1, events: (Array.isArray(saved?.events) ? saved.events : []).slice(-50).map(event => ({
+        at: event["at"], stage: event["stage"], durationMs: event["durationMs"], status: event["status"],
+        outcome: event["outcome"], count: event["count"], page: event["page"],
+      }))};
+    }
+    case "discogs:search":
+      if (!message["query"] || typeof message["query"] !== "object") throw new StreamingError("invalid-query", "Consulta Discogs inválida.");
+      return discogs.search(message["query"] as DiscogsSearch);
+    case "discogs:release": {
+      if (typeof message["id"] !== "string") throw new StreamingError("invalid-query", "Edição inválida.");
+      const release = await discogs.release(message["id"]);
+      return {release, candidate: discogsCandidate(release), description: discogsDescription(release)};
+    }
     case "metadata:description": {
       if (typeof message["sourceUrl"] !== "string" || message["sourceUrl"].length > 2048 || !isSupportedCatalogUrl(message["sourceUrl"])) throw new StreamingError("invalid-query", "Origem da biblioteca inválida.");
-      return fetchAndRecordDescription(message["album"]);
+      const requestedAlbum = validateDescriptionAlbum(message["album"]);
+      if (requestedAlbum.service === "upcitemdb") return upcitemdbDescription(requestedAlbum);
+      if (requestedAlbum.service === "discogs") return discogsDescription(await discogs.release(requestedAlbum.id));
+      return fetchAndRecordDescription(requestedAlbum);
     }
     case "metadata:artwork": {
       if (typeof message["sourceUrl"] !== "string" || message["sourceUrl"].length > 2048 || !isSupportedCatalogUrl(message["sourceUrl"])) {
@@ -237,6 +349,8 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
         {id: "apple-music", name: "iTunes", requiresAuthentication: false, connected: true},
         {id: "deezer", name: "Deezer", requiresAuthentication: false, connected: true},
         {id: "lastfm", name: "Last.fm", requiresAuthentication: false, connected: await lastfmSettings.configured()},
+        {id: "discogs", name: "Discogs", requiresAuthentication: true, connected: Boolean((await chrome.storage.local.get("discogs.token"))["discogs.token"])},
+        {id: "upcitemdb", name: "UPCitemdb", requiresAuthentication: false, connected: true},
       ]};
     }
     case SETUP_REQUEST: {
@@ -329,8 +443,48 @@ async function dispatch(message: Record<string, unknown>): Promise<unknown> {
     case "spotify:open":
     case "metadata:search":
     case "spotify:search": {
+      if (message["type"] === "metadata:search" && message["service"] === "upcitemdb") {
+        for (const key of ["ean", "upc"]) if (message[key] !== undefined && (typeof message[key] !== "string" || message[key] && !normalizeProductCode(message[key] as string))) {
+          throw new StreamingError("invalid-query", "Informe um EAN ou UPC válido.");
+        }
+        if (message["ean"] && message["upc"] && !productCodesMatch(message["ean"] as string, message["upc"] as string)) throw new StreamingError("invalid-query", "EAN e UPC não correspondem ao mesmo código.");
+        const result = await searchUpcitemdb({title: message["title"], artist: message["artist"], barcode: message["ean"] || message["upc"] || "", media: "music", nextPage: message["nextPage"]}, message["sourceUrl"]);
+        return {service: "upcitemdb", configurationUrl: chrome.runtime.getURL("setup.html"), connectionRequired: false, searchUrl: "https://www.upcitemdb.com/",
+          resolution: {status: "choose", candidates: result.candidates, rememberAlbumByDefault: false,
+            notice: result.candidates.length || result.nextPage ? "Confira a edição física; a pesquisa por título não confirma o código do exemplar." : "Nenhum produto encontrado no UPCitemdb. Confira título ou código.",
+            ...(result.nextPage ? {nextPage: result.nextPage, incomplete: true} : {})}};
+      }
+      if (message["type"] === "metadata:search" && message["service"] === "discogs") {
+        if (typeof message["sourceUrl"] !== "string" || !isSupportedCatalogUrl(message["sourceUrl"])) throw new StreamingError("invalid-query", "Origem inválida.");
+        let cursor: {page?: number; mode?: "barcode" | "title"} = {};
+        const signature = JSON.stringify([message["title"], message["artist"], message["ean"], message["upc"]]);
+        if (message["nextPage"] !== undefined) {
+          try {
+            const parsed = JSON.parse(String(message["nextPage"]));
+            if (parsed.signature !== signature || !Number.isInteger(parsed.page) || !["barcode", "title"].includes(parsed.mode)) throw new Error();
+            cursor = parsed;
+          } catch {throw new StreamingError("invalid-query", "Esta página não pertence à busca Discogs atual.");}
+        }
+        const page = await discogs.search({title: message["title"] as string, artist: typeof message["artist"] === "string" ? message["artist"] : "",
+          barcode: String(message["ean"] || message["upc"] || ""), media: "music", ...cursor});
+        return {service: "discogs", configurationUrl: chrome.runtime.getURL("setup.html"), connectionRequired: false, searchUrl: "https://www.discogs.com/search/",
+          resolution: {status: "choose", candidates: page.candidates, rememberAlbumByDefault: false,
+            ...(page.page < page.pages ? {nextPage: JSON.stringify({signature, page: page.page + 1, mode: page.mode}), incomplete: true} : {})}};
+      }
       if(message["type"] === "metadata:search" && message["service"] === "lastfm") {
-        if(typeof message["sourceUrl"]!=="string"||!isSupportedCatalogUrl(message["sourceUrl"])||message["nextPage"]!==undefined)throw new StreamingError("invalid-query","Consulta Last.fm inválida.");
+        const title = message["title"], artist = message["artist"] ?? "", language = message["language"], sourceUrl = message["sourceUrl"];
+        if(typeof sourceUrl!=="string"||!isSupportedCatalogUrl(sourceUrl)||sourceUrl.length>2048||typeof title!=="string"||!title.trim()||title.length>200||typeof artist!=="string"||artist.length>200||language!=="pt"&&language!=="en")throw new StreamingError("invalid-query","Consulta Last.fm inválida.");
+        if (!artist.trim()) {
+          const query = {title: title.trim(), artist: "", language, sourceUrl} as const;
+          const cursor = readMetadataPage("lastfm", query, message["nextPage"]);
+          if (cursor !== undefined && !/^[1-9]\d{0,2}$/.test(cursor)) throw new StreamingError("invalid-query", "Página Last.fm inválida.");
+          const result = await searchLastfm(query, cursor === undefined ? 1 : Number(cursor));
+          return {service: "lastfm", configurationUrl: chrome.runtime.getURL("setup.html"), connectionRequired: false,
+            searchUrl: "https://www.last.fm/search/albums?q=" + encodeURIComponent(title.trim()),
+            resolution: result.albums.length ? {status: "choose", candidates: result.albums.map(lastfmSearchCandidate), rememberAlbumByDefault: false,
+              ...(result.page < result.pages ? {nextPage: bindMetadataPage("lastfm", query, String(result.page + 1))} : {})} : {status: "not-found"}};
+        }
+        if(message["nextPage"]!==undefined)throw new StreamingError("invalid-query","Consulta Last.fm inválida.");
         const album=await queryLastfm(message);
         return {service:"lastfm",configurationUrl:chrome.runtime.getURL("setup.html"),connectionRequired:false,searchUrl:album.url,
           resolution:album.status==="empty"?{status:"not-found"}:{status:"choose",candidates:[lastfmCandidate(album)],rememberAlbumByDefault:false}};

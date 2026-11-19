@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {MetadataSearchSession, bindMetadataPage, readMetadataPage} from "../src/streamings/metadata-search.ts";
+import {MetadataSearchSession, bindMetadataPage, readMetadataPage, metadataProductCode} from "../src/streamings/metadata-search.ts";
 
 const query = {title: "Discovery", artist: "Daft Punk", sourceUrl: "https://www.libib.com/library"};
 const configurationUrl = "chrome-extension://controlled/setup.html";
@@ -14,6 +14,26 @@ const reply = (service, ids = ["album"], nextPage) => ({service, configurationUr
   resolution: {status: "choose", candidates: ids.map(id => album(service, id)), rememberAlbumByDefault: false, ...(nextPage ? {nextPage} : {})}});
 const deferred = () => {let resolve, reject; const promise = new Promise((yes, no) => {resolve = yes; reject = no;}); return {promise, resolve, reject};};
 const tick = () => new Promise(resolve => setImmediate(resolve));
+test("limpar resultados remove a continuação, descarta resposta tardia e preserva outras fontes sem consultar", async () => {
+  let pending, calls = 0;
+  const session = new MetadataSearchSession("spotify", {services: async () => services(true), search: async service => {
+    calls++;return pending ? pending.promise : reply(service, [service], "next");
+  }});
+  await session.search(query);session.selectService("youtube-music");await session.search(query);
+  session.selectService("spotify");pending = deferred();const late = session.search(query);await tick();
+  const before = calls;session.clearResults();assert.deepEqual(session.snapshot(), {albums: []});assert.equal(calls, before);
+  assert.equal(session.snapshot("youtube-music").nextPage, "next");
+  pending.resolve(reply("spotify", ["stale"], "stale-page"));assert.equal(await late, undefined);
+  assert.deepEqual(session.snapshot(), {albums: []});
+});
+test('EAN/UPC seguem para Spotify, Discogs e UPCitemdb e são retirados ao trocar para fonte sem busca por código',()=>{
+ for(const service of ['spotify','discogs','upcitemdb']){
+  assert.deepEqual(metadataProductCode(service,' 7898285415687 '),{ean:'7898285415687'});
+  assert.deepEqual(metadataProductCode(service,'0 36000-291452'),{upc:'0 36000-291452'});
+  assert.deepEqual(metadataProductCode(service,''),{});
+ }
+ for(const service of ['apple-music','deezer','lastfm','youtube-music','tmdb']) assert.deepEqual(metadataProductCode(service,'7898285415687'),{});
+});
 
 test("continuação preserva serviço/consulta, suporta reinício do worker e rejeita trocas", () => {
   const token = bindMetadataPage("youtube-music", query, "opaque-token==");

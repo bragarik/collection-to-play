@@ -1,4 +1,6 @@
 import {isLastfmSourceId} from "../streamings/lastfm.js";
+import {isUpcitemdbImageUrl} from "../streamings/upcitemdb.js";
+import {validateUpcitemdbCandidate} from "./upcitemdb-source.js";
 import {isMetadataService, isMetadataAlbumId} from "../streamings/metadata-search.js";
 import {browserErrorDetails, type BrowserErrorDetails} from "../streamings/request-diagnostics.js";
 import type {AlbumArtworkVariant, MetadataServiceId, StreamingId} from "../shared/contracts.js";
@@ -47,7 +49,7 @@ export function isAlbumArtworkUrl(service: unknown, value: unknown): value is st
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash || url.pathname === "/") return false;
-    return service === "lastfm" ? ["lastfm.freetls.fastly.net", "lastfm-img2.akamaized.net"].includes(url.hostname) && url.pathname.startsWith("/i/u/") :
+    return service === "upcitemdb" ? isUpcitemdbImageUrl(value) : service === "lastfm" ? ["lastfm.freetls.fastly.net", "lastfm-img2.akamaized.net"].includes(url.hostname) && url.pathname.startsWith("/i/u/") :
       service === "spotify" ? url.hostname === "i.scdn.co" && /^\/image\/[\w-]+$/.test(url.pathname) :
       service === "deezer" ? url.hostname === "cdn-images.dzcdn.net" && url.pathname.startsWith("/images/cover/") :
       service === "apple-music" ? url.hostname.endsWith(".mzstatic.com") && url.pathname.startsWith("/image/") :
@@ -127,7 +129,11 @@ export async function fetchAlbumArtwork(value: unknown, environment: {
   readonly signal?: AbortSignal;
   readonly onDiagnostic?: (event: ArtworkDiagnosticEvent) => void;
 } = {}): Promise<AlbumArtworkFile> {
-  const album = object(value), service = album["service"] as ArtworkServiceId, id = album["id"] as string;
+  let album = object(value);
+  if (album["service"] === "upcitemdb") {
+    try {album = object(validateUpcitemdbCandidate(value));} catch {throw new ArtworkError("invalid-input");}
+  }
+  const service = album["service"] as ArtworkServiceId, id = album["id"] as string;
   if (service === "lastfm" ? !isLastfmSourceId(id) : !isMetadataService(service) || !isMetadataAlbumId(service, id)) throw new ArtworkError("invalid-input");
   const variants = albumArtworkVariants(service, album["artworkVariants"]);
   const urls = new Set(variants.map(variant => variant.url));

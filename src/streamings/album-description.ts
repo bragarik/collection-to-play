@@ -13,6 +13,11 @@ export async function loadAlbumDescription(value: unknown, options: {
 }): Promise<AlbumDescription> {
   const album = validateDescriptionAlbum(value), trace = createRequestDiagnostics("streaming", options.signal, options.onDiagnostic);
   const emit = options.onDiagnostic;
+  const ready = descriptionFromSearch(album);
+  if (ready) {
+    try {trace.signal.throwIfAborted();} catch (error) {throw trace.failure(error, "request");}
+    emit?.({kind: "results", ...trace.timing(), listedTracks: ready.listedTracks, partial: ready.notes.length > 0});return ready;
+  }
   let data: unknown, response: Response | undefined;
   const request = async (url: URL): Promise<unknown> => {
     emit?.({kind: "request", ...trace.timing(), endpoint: url.origin + url.pathname});

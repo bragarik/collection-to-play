@@ -2,6 +2,7 @@ import {descriptionLimit, descriptionText, assertDescriptionReplacement, type De
 import {isSupportedCatalogUrl} from "../shared/contracts.js";
 import {prepareAlbumMetadata} from "./libib-metadata.js";
 import {ARTWORK_BYTE_LIMIT, imageFormat} from "../albums/album-artwork.js";
+import {readLibibItemFields, prepareLibibItemFields, type LibibItemFieldKey, type LibibTextControl} from "./libib-item-fields.js";
 
 export interface LibibFullEditor {
   readonly form: HTMLFormElement;
@@ -10,6 +11,7 @@ export interface LibibFullEditor {
   readonly title: HTMLInputElement;
   readonly creators: HTMLInputElement;
   readonly description?: HTMLInputElement | HTMLTextAreaElement;
+  readonly extraFields: ReadonlyMap<LibibItemFieldKey, LibibTextControl>;
 }
 
 export function readDescriptionControl(form: HTMLFormElement): HTMLInputElement | HTMLTextAreaElement | undefined {
@@ -42,7 +44,8 @@ export function readLibibFullEditor(form: HTMLFormElement, pageUrl: string, allo
       .some(editor => editor.dataset["joinId"] === joinId));
   if (!music && !movie || music && movie) return undefined;
   const description = readDescriptionControl(form);
-  return {form, joinId, media: movie ? "movie" : "music", title, creators, ...(description ? {description} : {})};
+  const media = movie ? "movie" : "music";
+  return {form, joinId, media, title, creators, extraFields: readLibibItemFields(form, media), ...(description ? {description} : {})};
 }
 
 /** Changes only the two text inputs; saving stays under the native form's control. */
@@ -66,16 +69,18 @@ export async function fillLibibFullEditorPatch(context: LibibFullEditor, pageUrl
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Escolha os campos que deseja preencher.");
   const patch = value as Record<string, unknown>, keys = Object.keys(patch);
   const creatorKey = context.media === "movie" ? "directors" : "artists";
-  if (!keys.length || keys.some(key => !["title", creatorKey, "artwork", "description"].includes(key) || patch[key] === undefined)) {
+  if (!keys.length || keys.some(key => !["title", creatorKey, "artwork", "description", ...context.extraFields.keys()].includes(key) || patch[key] === undefined)) {
     throw new Error("Escolha somente os campos disponíveis para este item.");
   }
   const assertCurrent = (): LibibFullEditor => {
     const current = readLibibFullEditor(context.form, pageUrl, context.media === "movie");
     if (options.signal?.aborted || options.isCurrent?.() === false || !current || current.joinId !== context.joinId ||
-      current.media !== context.media || current.title !== context.title || current.creators !== context.creators) throw new Error("A edição mudou. Reabra a busca no item que deseja alterar.");
+      current.media !== context.media || current.title !== context.title || current.creators !== context.creators ||
+      keys.some(key => context.extraFields.has(key as LibibItemFieldKey) && current.extraFields.get(key as LibibItemFieldKey) !== context.extraFields.get(key as LibibItemFieldKey))) throw new Error("A edição mudou. Reabra a busca no item que deseja alterar.");
     return current;
   };
-  assertCurrent();
+  const extraPatch = Object.fromEntries(keys.filter(key => context.extraFields.has(key as LibibItemFieldKey)).map(key => [key, patch[key]]));
+  prepareLibibItemFields(assertCurrent().extraFields, extraPatch);
   let description: string | undefined;
   if (keys.includes("description")) {
     const control = assertCurrent().description;
@@ -116,20 +121,24 @@ export async function fillLibibFullEditorPatch(context: LibibFullEditor, pageUrl
     if (files.length !== 1) throw new Error("Não foi possível preparar o arquivo da capa.");
   }
   const current = assertCurrent();
+  const extraValues = prepareLibibItemFields(current.extraFields, extraPatch);
   if (description !== undefined) {
     assertDescriptionReplacement(current.description?.value, options.descriptionReplacement);
     descriptionText(description, descriptionLimit(current.description?.maxLength));
   }
   const previous = {description: current.description?.value, title: current.title.value, creators: current.creators.value, files: image?.files};
+  const previousExtras = [...extraValues].map(([control]) => ({control, value: control.value}));
   try {
     if (image && files) image.files = files;
     if (description !== undefined && current.description) current.description.value = description;
     if (title !== undefined) current.title.value = title;
     if (creators !== undefined) current.creators.value = creators;
+    for (const [control, text] of extraValues) control.value = text;
   } catch {
     if (description !== undefined && current.description && previous.description !== undefined) current.description.value = previous.description;
     if (title !== undefined) current.title.value = previous.title;
     if (creators !== undefined) current.creators.value = previous.creators;
+    for (const {control, value} of previousExtras) control.value = value;
     if (image && previous.files) {try {image.files = previous.files;} catch { /* Preserve the original failure. */ }}
     throw new Error("Não foi possível preencher os campos. Confira o formulário do Libib.");
   }

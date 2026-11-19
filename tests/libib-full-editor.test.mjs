@@ -22,6 +22,20 @@ test('identifica a edição completa musical pelo formulário, endpoint e item',
  const value=setup();const context=readLibibFullEditor(value.form,url);
  assert.equal(context.joinId,'101');assert.equal(context.title,value.title);assert.equal(context.creators,value.creators);
 });
+test('edição completa reconhece extras reais sem presumir que vieram da inclusão manual',()=>{
+ const value=setup();
+ const publisher={tagName:'INPUT',type:'text',value:'Columbia',disabled:false,readOnly:false,isConnected:true,form:value.form,classList:{contains:()=>false}};
+ const ensemble={...publisher,value:'Ator'};
+ value.form.querySelectorAll=selector=>selector.includes('"publisher"')?[publisher]:selector.includes('"ensemble"')?[ensemble]:[];
+ const music=readLibibFullEditor(value.form,url);
+ assert.deepEqual([...music.extraFields.keys()],['publisher']);
+ assert.equal(music.extraFields.get('publisher'),publisher);
+ value.cards[0].classList.contains=key=>key==='movie';
+ const movie=readLibibFullEditor(value.form,url,true);
+ assert.equal(movie.media,'movie');assert.equal(movie.extraFields.get('ensemble'),ensemble);
+ publisher.readOnly=true;
+ assert.equal(readLibibFullEditor(value.form,url,true).extraFields.has('publisher'),false);
+});
 test('preenche somente título e artista, preservando outros campos e arquivo escolhido',()=>{
  const value=setup(),before=structuredClone(value.untouched);
  const context=readLibibFullEditor(value.form,url);fillLibibFullEditor(context,url,metadata);
@@ -75,9 +89,77 @@ const pngFile=()=>new File([Uint8Array.from([137,80,78,71,13,10,26,10,1])],'stre
 const decode=async()=>({width:320,height:300,close(){}});
 const patchContext=value=>readLibibFullEditor(value.form,url);
 
+function extraSetup(media='music') {
+ const value=selectiveSetup(),extras=new Map();
+ value.cards[0].classList.contains=key=>key===media;
+ const query=value.form.querySelectorAll;
+ value.form.querySelectorAll=selector=>{
+  const name=selector.match(/name="([^"]+)"/)?.[1];
+  return extras.has(name)?[extras.get(name)]:query(selector);
+ };
+ const add=(name,text='',changes={})=>{
+  const control={tagName:'INPUT',type:'text',isConnected:true,form:value.form,disabled:false,readOnly:false,
+   classList:{contains:()=>false},maxLength:-1,value:text,...changes};
+  extras.set(name,control);return control;
+ };
+ return {...value,extras,add,context:()=>readLibibFullEditor(value.form,url,media==='movie')};
+}
+
+test('extras selecionados substituem somente seus controles sem submeter nem alterar os demais',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');
+ for(const media of ['music','movie']) {
+  const v=extraSetup(media),publisher=v.add('publisher','Anterior'),notes=v.add('notes','Minhas notas');
+  v.form.submit=()=>assert.fail('Não deve salvar');v.form.requestSubmit=v.form.submit;
+  const files=v.image.files;
+  await fillLibibFullEditorPatch(v.context(),url,{publisher:'Selo do Discogs'});
+  assert.equal(publisher.value,'Selo do Discogs');assert.equal(notes.value,'Minhas notas');
+  assert.equal(v.title.value,'Título antigo');assert.equal(v.creators.value,'Artista antigo');assert.equal(v.image.files,files);
+ }
+});
+
+test('todos os extras e datas são validados antes de preencher título, criadores ou demais valores',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');
+ for(const patch of [{publisher:'X'.repeat(5)},{publish_year:'2025'},{price:12},{ensemble:'Ator'},{group:undefined}]) {
+  const v=extraSetup(),publisher=v.add('publisher','ABC',{maxLength:4});
+  v.add('price','1');v.add('group','Meu grupo');v.add('publish_year','2024');v.add('publish_month','02');v.add('publish_day','29');
+  await assert.rejects(fillLibibFullEditorPatch(v.context(),url,{title:'Novo',artists:['Outro'],...patch}));
+  assert.equal(v.title.value,'Título antigo');assert.equal(v.creators.value,'Artista antigo');assert.equal(publisher.value,'ABC');
+ }
+});
+
+test('troca ou bloqueio do controle após abrir o modal impede preenchimento atrasado',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');
+ for(const mutate of [v=>v.extras.set('publisher',{...v.extras.get('publisher')}),v=>v.extras.delete('publisher'),v=>v.extras.get('publisher').disabled=true]) {
+  const v=extraSetup(),publisher=v.add('publisher','Anterior'),context=v.context();mutate(v);
+  await assert.rejects(fillLibibFullEditorPatch(context,url,{title:'Novo',publisher:'Outro'}),/edição mudou/);
+  assert.equal(v.title.value,'Título antigo');assert.equal(publisher.value,'Anterior');
+ }
+});
+
+test('após decodificar capa, reconfere controles, limites e data não selecionada antes de qualquer alteração',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');
+ for(const mutate of [v=>v.extras.set('publisher',{...v.extras.get('publisher')}),v=>v.extras.get('publisher').maxLength=2,v=>v.extras.get('publish_day').value='29']) {
+  const v=extraSetup(),publisher=v.add('publisher','Anterior');
+  v.add('publish_year','2024');v.add('publish_month','02');v.add('publish_day','28');
+  const files=v.image.files;
+  await assert.rejects(fillLibibFullEditorPatch(v.context(),url,{title:'Novo',publisher:'Outra',publish_year:'2025',artwork:pngFile()},
+   {decode:async()=>{mutate(v);return {width:640,height:640,close(){}};}}));
+  assert.equal(v.title.value,'Título antigo');assert.equal(publisher.value,'Anterior');assert.equal(v.image.files,files);
+ }
+});
+
+test('falha ao preencher extra restaura os controles que já haviam sido alterados',async()=>{
+ const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');
+ const v=extraSetup(),publisher=v.add('publisher','Anterior'),notes=v.add('notes','Anotação');
+ Object.defineProperty(notes,'value',{get:()=> 'Anotação',set:value=>{if(value!=='Anotação')throw Error('Controle recusou');}});
+ const files=v.image.files;
+ await assert.rejects(fillLibibFullEditorPatch(v.context(),url,{title:'Novo',publisher:'Outro',notes:'Nova nota',artwork:pngFile()},{decode}));
+ assert.equal(v.title.value,'Título antigo');assert.equal(publisher.value,'Anterior');assert.equal(notes.value,'Anotação');assert.equal(v.image.files,files);
+});
+
 test('preenchimento seletivo muda só o título e não consulta nem altera FileList',async()=>{
  const {fillLibibFullEditorPatch}=await import('../src/libib/libib-full-editor.ts');const v=selectiveSetup(),files=v.image.files;
- v.form.querySelectorAll=selector=>{if(selector.includes('description'))return [];throw Error('Imagem não escolhida');};
+ v.form.querySelectorAll=selector=>{if(selector.includes('\"image\"'))throw Error('Imagem não escolhida');return [];};
  await fillLibibFullEditorPatch(patchContext(v),url,{title:' Novo título '});
  assert.equal(v.title.value,'Novo título');assert.equal(v.creators.value,'Artista antigo');assert.equal(v.image.files,files);
 });

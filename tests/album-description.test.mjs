@@ -1,11 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {DESCRIPTION_LIMIT,descriptionLimit,descriptionText,assertDescriptionReplacement,deezerDescription,itunesDescription,spotifyDescription,formatAlbumDescription} from '../src/albums/album-description.ts';
+import {DESCRIPTION_LIMIT,descriptionLimit,descriptionText,assertDescriptionReplacement,deezerDescription,itunesDescription,spotifyDescription,formatAlbumDescription,formatDescriptionText} from '../src/albums/album-description.ts';
 import {loadAlbumDescription} from '../src/streamings/album-description.ts';
 const fixture=async name=>JSON.parse(await readFile(new URL(`./fixtures/description-${name}.json`,import.meta.url),'utf8'));
 const deezer=await fixture('deezer'),itunes=await fixture('itunes');
 const album=(service='deezer')=>({service,id:service==='spotify'?'A'.repeat(22):service==='apple-music'?'401652079':service==='youtube-music'?'MPREtestalbum':'1215478',title:'Siderado',artists:[{id:'13545',name:'Skank'}],url:service==='spotify'?'https://open.spotify.com/album/'+'A'.repeat(22):service==='apple-music'?'https://music.apple.com/br/album/siderado/401652079':service==='youtube-music'?'https://music.youtube.com/browse/MPREtestalbum':'https://www.deezer.com/album/1215478'});
+test('montagem comum preserva campos de vídeo, parágrafos e créditos sem inserir campos musicais',()=>{
+ const sections=[{field:'title',label:'Título',text:'Título: Filme'},
+  {field:'directors',label:'Diretores',text:'Diretores: Diretor'},
+  {field:'releaseDate',label:'Lançamento',text:'Lançamento: 2001-02-03'},
+  {field:'duration',label:'Duração',text:'Duração: 132 min'},
+  {field:'about',label:'Sinopse',text:'Sinopse:\nPrimeiro parágrafo.\n\nSegundo parágrafo & texto literal.'}];
+ const text=formatDescriptionText(sections,{service:'tmdb',url:'https://www.themoviedb.org/movie/99'});
+ assert.match(text,/Título: Filme\nDiretores: Diretor\nLançamento: 2001-02-03\nDuração: 132 min\n\nSinopse:/);
+ assert.match(text,/Primeiro parágrafo\.\n\nSegundo parágrafo & texto literal\./);
+ assert.match(text,/\n\nFonte: TMDb\nhttps:\/\/www.themoviedb.org\/movie\/99$/);
+ assert.doesNotMatch(text,/Álbum:|Artistas:/);
+ const long=[{field:'about',label:'Sinopse',text:'Sinopse:\n'+'a'.repeat(6000)}];
+ assert.throws(()=>formatDescriptionText(long,{service:'tmdb',url:'https://www.themoviedb.org/movie/99'}));
+ assert.ok(formatDescriptionText(long,{service:'tmdb',url:'https://www.themoviedb.org/movie/99'},{preserveLongText:true}).length>6000);
+});
+test('descrição já retornada é reutilizada sem rede e mantém cancelamento',async()=>{
+ const source=album('spotify');const description=formatAlbumDescription({album:source,label:'Columbia'});
+ const options={fetch:()=>assert.fail('Não deve buscar'),spotifyDetails:()=>assert.fail('Não deve buscar detalhes')};
+ const result=await loadAlbumDescription({...source,description},options);assert.deepEqual(result,description);assert.notEqual(result,description);
+ const controller=new AbortController();controller.abort();
+ await assert.rejects(loadAlbumDescription({...source,description},{...options,signal:controller.signal}),{code:'cancelled'});
+});
 
 test('descrição Deezer usa amostra pública de lançamento, gravadora, gênero e onze faixas',()=>{
  const document=formatAlbumDescription(deezerDescription(album(),deezer));
@@ -111,4 +133,33 @@ test('limite documentado e limites nativos menores sem truncamento',()=>{
  for(const [native,expected] of [[undefined,5000],[-1,5000],[20000,5000],[4200,4200],[0,0],[1.5,5000],[NaN,5000]])assert.equal(descriptionLimit(native),expected);
  assert.equal(descriptionText('a'.repeat(5000)).length,5000);assert.throws(()=>descriptionText('a'.repeat(5001)),/5\.000/);
  assert.equal(descriptionText('a\r\nb',3),'a\nb');assert.throws(()=>descriptionText('abcd',3),/3 caracteres/);assert.throws(()=>descriptionText('a',0));
+});
+
+test('dados estruturados da inclusão musical preservam códigos e duração em minutos sem ler o texto formatado',()=>{
+ const document=formatAlbumDescription(deezerDescription(album(),deezer));
+ assert.equal(document.manualFields.publisher,'Columbia');
+ assert.equal(document.manualFields.publish_year,'1998');
+ assert.equal(document.manualFields.publish_month,'06');
+ assert.equal(document.manualFields.publish_day,'22');
+ assert.equal(document.manualFields.ean_isbn13,'5099749207127');
+ assert.equal(document.manualFields.upc_isbn10,undefined);
+ assert.equal(document.manualFields.length_of,'47');
+ const sparse=formatAlbumDescription({album:album(),tracks:[],tracksComplete:false});
+ assert.deepEqual(sparse.manualFields,{});
+});
+
+test('inclusão iTunes aproveita discCount e preço digital BRL com avisos',()=>{
+ const data=structuredClone(itunes);
+ const collection=data.results.find(item=>item.wrapperType==='collection');
+ collection.collectionPrice=17.9;collection.currency='BRL';
+ for(const song of data.results.filter(item=>item.wrapperType==='track'))song.discCount=2;
+ const result=formatAlbumDescription(itunesDescription(album('apple-music'),data));
+ assert.equal(result.manualFields.number_of_discs,'2');
+ assert.equal(result.manualFields.price,'17.90');
+ assert.match(result.manualFieldNotes.number_of_discs,/edição digital/);
+ assert.match(result.manualFieldNotes.price,/BRL/);
+ collection.currency='USD';
+ assert.equal(formatAlbumDescription(itunesDescription(album('apple-music'),data)).manualFields.price,undefined);
+ const songs=data.results.filter(item=>item.wrapperType==='track');songs[0].discCount=3;
+ assert.equal(formatAlbumDescription(itunesDescription(album('apple-music'),data)).manualFields.number_of_discs,undefined);
 });

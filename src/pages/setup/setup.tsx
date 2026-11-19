@@ -1,3 +1,4 @@
+import {DiscogsSettings} from "../../components/discogs-settings.js";
 import {render} from "preact";
 import {useEffect, useRef, useState} from "preact/hooks";
 import {STREAMINGS, streamingName, type AppRequest, type SetupInfo, type AlbumCandidate, type AlbumSearchReply} from "../../shared/contracts.js";
@@ -53,20 +54,6 @@ function TmdbSettings() {
         </div>
       </form>
       <Feedback id="tmdb-feedback">{feedback}</Feedback>
-      <div class="settings-actions"><button class="btn btn-soft" type="button" disabled={busy} onClick={() => {
-        void chrome.storage.local.get("tmdb.diagnostic").then(value => {
-          const diagnostic = value["tmdb.diagnostic"] as {events?: Record<string, unknown>[]} | undefined;
-          if (!Array.isArray(diagnostic?.events) || !diagnostic.events.length) {
-            setFeedback("Faça uma consulta de vídeo antes de exportar o diagnóstico.");
-            return;
-          }
-          const events = diagnostic.events.slice(-20).map((event: Record<string, unknown>) => ({
-            at: event["at"], stage: event["stage"], query: event["query"], language: event["language"],
-            durationMs: event["durationMs"], status: event["status"], count: event["count"], outcome: event["outcome"],
-          }));
-          downloadJson({schemaVersion: 1, extensionVersion: chrome.runtime.getManifest().version, events}, "collection-to-play-tmdb");
-        }).catch(() => setFeedback("Não foi possível exportar o diagnóstico."));
-      }}><ActionIcon name="download"/>Exportar diagnóstico TMDb</button></div>
       <p class="note"><a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">Abrir configurações da API do TMDb</a></p>
     </div>
   </details>;
@@ -194,7 +181,7 @@ function Setup() {
       try {
         const value = await request<unknown>({type: "spotify:diagnostics"});
         if (!value) {setExportFeedback("Faça uma busca antes de exportar o log."); return;}
-        downloadJson(value, "collection-to-play-busca"); setExportFeedback("Log exportado com o diagnóstico disponível do serviço. Sem tokens ou dados de login.");
+        downloadJson(value, "collection-to-play-busca"); setExportFeedback("Log exportado com os diagnósticos disponíveis de todos os serviços. Sem tokens ou dados de login.");
       } catch (error) {setExportFeedback(errorMessage(error));}
     });
   }
@@ -245,6 +232,7 @@ function Setup() {
         <p class="note"><a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">Criar API key no Last.fm</a></p>
       </div></details>
       <TmdbSettings/>
+      <DiscogsSettings/>
     </main><footer><ProjectSupport/><a id="open-library" href={info?.catalog.libraryUrl ?? "https://www.libib.com/library"} target="_blank" rel="noopener noreferrer">Abrir biblioteca no Libib</a></footer>
   </>;
 }

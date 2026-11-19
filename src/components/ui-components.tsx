@@ -21,7 +21,8 @@ export function ActionIcon({name}: {name: ActionIconName}) {
 }
 
 export function StreamingIcon({service = "spotify"}: {service?: string}) {
-  return <img class="spotify-icon" src={chrome.runtime.getURL(service === "lastfm" ? "assets/lastfm-icon.svg" : service === "deezer" ? "assets/deezer-icon.svg" : service === "apple-music" ? "assets/itunes-icon.svg" : service === "youtube-music" ? "assets/youtube-music-icon.png" : "assets/spotify-icon.svg")} alt="" aria-hidden="true" width="24" height="24"/>;
+  if (service === "upcitemdb") return <img class="spotify-icon" src={chrome.runtime.getURL("assets/upcitemdb-icon.svg")} alt="" aria-hidden="true" width="24" height="24"/>;
+  return <img class="spotify-icon" src={chrome.runtime.getURL(service === "discogs" ? "assets/discogs-icon.svg" : service === "tmdb" ? "assets/collection-to-play-icon.svg" : service === "lastfm" ? "assets/lastfm-icon.svg" : service === "deezer" ? "assets/deezer-icon.svg" : service === "apple-music" ? "assets/itunes-icon.svg" : service === "youtube-music" ? "assets/youtube-music-icon.png" : "assets/spotify-icon.svg")} alt="" aria-hidden="true" width="24" height="24"/>;
 }
 export function Feedback({id, children}: {id: string; children: ComponentChildren}) {
   return <p id={id} class="feedback" role="status" aria-live="polite">{children}</p>;

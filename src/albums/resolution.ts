@@ -1,5 +1,6 @@
 import type { AlbumCandidate, AlbumQuery, StreamingAdapter, StreamingId } from "../shared/contracts.js";
 import { normalizeProductCode, productCodesMatch } from "./identifiers.js";
+import {validateUpcitemdbCandidate} from "./upcitemdb-source.js";
 
 export interface RememberedChoice {
   readonly key: string;
@@ -112,6 +113,9 @@ export function getLookupKey(query: AlbumQuery, service: StreamingId): string {
 }
 
 export function isValidCandidate(album: AlbumCandidate, service: StreamingId): boolean {
+  if (service === "upcitemdb") {
+    try {validateUpcitemdbCandidate(album); return true;} catch {return false;}
+  }
   return Boolean(
     album &&
     album.service === service &&

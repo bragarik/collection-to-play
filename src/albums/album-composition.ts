@@ -1,4 +1,5 @@
 import {lastfmDescription} from "./lastfm-source.js";
+import {validateUpcitemdbCandidate} from "./upcitemdb-source.js";
 import type {LastfmSource} from "./lastfm-source.js";
 import {descriptionFromSearch, descriptionText, type AlbumDescription} from "./album-description.js";
 import {isDeezerAlbumUrl} from "../streamings/deezer.js";
@@ -46,11 +47,11 @@ function artworkView(value: AlbumArtworkResource | undefined): ArtworkView | und
 function manualSource(previous: FieldSource): FieldSource {
   return {kind: "manual", basedOn: structuredClone(previous.kind === "manual" ? previous.basedOn : previous)};
 }
-function lastfmAlbumUrl(source: FieldSource): string | undefined {
+function sourceAlbumUrl(source: FieldSource, service: "lastfm" | "discogs"): string | undefined {
   const original=source.kind==="manual"?source.basedOn:source;
-  if(original.kind==="complementary"&&original.service==="lastfm")return original.albumUrl;
-  if(original.kind==="streaming"&&original.service==="lastfm")return original.albumUrl;
-  if(original.kind==="merged")return original.sources.find(item=>item.service==="lastfm")?.albumUrl;
+  if(original.kind==="complementary"&&original.service===service)return original.albumUrl;
+  if(original.kind==="streaming"&&original.service===service)return original.albumUrl;
+  if(original.kind==="merged")return original.sources.find(item=>item.service===service)?.albumUrl;
   return undefined;
 }
 function retainLastfmAttribution(value: string, albumUrl: string, required: boolean): string {
@@ -59,10 +60,11 @@ function retainLastfmAttribution(value: string, albumUrl: string, required: bool
   return value.includes("https://www.last.fm/api/tos")?value:value.trimEnd()+suffix;
 }
 function readAlbum(value: AlbumSource): AlbumSource {
+  if (value?.service === "upcitemdb") return validateUpcitemdbCandidate(value);
   if (!value || !isMetadataService(value.service) || !isMetadataAlbumId(value.service, value.id)) throw new TypeError("Selecione um álbum de um streaming disponível.");
   try {
     const url = new URL(value.url);
-    const valid = value.service === "lastfm" ? Boolean(lastfmDescription(value as AlbumCandidate)) : value.service === "deezer" ? isDeezerAlbumUrl(value.url, value.id) : value.service === "apple-music" ? isItunesAlbumUrl(value.url, value.id) : value.service === "spotify" ? url.origin === "https://open.spotify.com" && new RegExp(`^/(?:intl-[a-z]{2}/)?album/${value.id}/?$`).test(url.pathname) :
+    const valid = value.service === "discogs" ? url.origin === "https://www.discogs.com" && new RegExp(`^/release/${value.id}/?$`).test(url.pathname) : value.service === "lastfm" ? Boolean(lastfmDescription(value as AlbumCandidate)) : value.service === "deezer" ? isDeezerAlbumUrl(value.url, value.id) : value.service === "apple-music" ? isItunesAlbumUrl(value.url, value.id) : value.service === "spotify" ? url.origin === "https://open.spotify.com" && new RegExp(`^/(?:intl-[a-z]{2}/)?album/${value.id}/?$`).test(url.pathname) :
       url.origin === "https://music.youtube.com" && url.pathname === `/browse/${value.id}`;
     if (!valid || url.username || url.password || url.port) throw new Error();
   } catch {throw new TypeError("O endereço não corresponde ao álbum escolhido.");}
@@ -145,7 +147,7 @@ export class AlbumComposition {
     const names = card.album.artists?.map(artist => artist.name);
     const artists = fields.includes("artists") && names?.length && names.every(name => name.trim()) ? names : undefined;
     const artwork = fields.includes("artwork") ? card.artwork?.retain() : undefined;
-    const description = fields.includes("description") && card.description ? card.album.service === "lastfm" ? card.description.text : descriptionText(card.description.text) : undefined;
+    const description = fields.includes("description") && card.description ? (card.album.service === "lastfm" || card.album.service === "discogs" || card.album.service === "upcitemdb") ? card.description.text : descriptionText(card.description.text) : undefined;
     const source = this.source(card);
     if (description !== undefined) this.description = {value: description, source, included: true};
     if (title !== undefined) this.title = {value: title, source, included: true};
@@ -192,8 +194,13 @@ export class AlbumComposition {
   }
   editDescription(value: string): void {
     this.active();if (typeof value !== "string") throw new TypeError("Descrição inválida.");
-    const source=this.description.source,albumUrl=lastfmAlbumUrl(source),hadAttribution=this.description.value.includes("https://www.last.fm/api/tos");
-    const next=albumUrl?retainLastfmAttribution(value,albumUrl,hadAttribution):value;
+    const source=this.description.source,albumUrl=sourceAlbumUrl(source, "lastfm"),hadAttribution=this.description.value.includes("https://www.last.fm/api/tos");
+    let next=albumUrl?retainLastfmAttribution(value,albumUrl,hadAttribution):value;
+    const discogsUrl = sourceAlbumUrl(source, "discogs");
+    if (discogsUrl && this.description.value.includes("Data provided by Discogs.") &&
+      (!next.includes("Data provided by Discogs.") || !next.includes(discogsUrl))) {
+      next = next.trimEnd() + `\n\nData provided by Discogs.\n${discogsUrl}`;
+    }
     this.description = {value:next, source: manualSource(source), included: true};this.changed();
   }
   useMergedDescription(value: string, sources: readonly {readonly service: MetadataServiceId; readonly albumId: string}[]): void {
@@ -254,7 +261,10 @@ export class AlbumComposition {
         const result = await this.environment.loadDescription(structuredClone(card.album), controller.signal);
         if (!current()) return false;
         if (result.service !== service || result.albumId !== card.album.id) throw new Error("Descrição de outro álbum.");
-        descriptionText(result.text);card.description = structuredClone(result);return true;
+        if (service === "discogs") {
+          if (typeof result.text !== "string" || !result.text.trim() || result.text.length > 200000) throw new Error("Descrição inválida.");
+        } else descriptionText(result.text);
+        card.description = structuredClone(result);return true;
       } catch {if (current()) card.descriptionError = "Não foi possível gerar a descrição. Tente novamente.";return false;}
       finally {if (current()) {card.descriptionPending = undefined;card.descriptionController = undefined;this.changed();}}
     });

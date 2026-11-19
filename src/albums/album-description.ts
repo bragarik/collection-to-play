@@ -1,3 +1,5 @@
+import {upcitemdbDescription, validateUpcitemdbCandidate} from "./upcitemdb-source.js";
+import {discogsDescription} from "./discogs-description.js";
 import {lastfmDescription} from "./lastfm-source.js";
 import type {DescriptionField} from "./description-completeness.js";
 import type {AlbumCandidate, MetadataServiceId} from "../shared/contracts.js";
@@ -7,11 +9,14 @@ import {StreamingError} from "./resolution.js";
 import {normalizeProductCode} from "./identifiers.js";
 
 export const DESCRIPTION_LIMIT = 5_000;
-export type DescriptionSectionField = "title" | "artists" | "releaseType" | "releaseDate" | "label" | "genres" | "trackCount" | "duration" | "upc" | "ean" | "copyrights" | "tracks" | "description" | "tags" | "mbid" | "about";
+export type DescriptionSectionField = "title" | "artists" | "releaseType" | "releaseDate" | "label" | "genres" | "trackCount" | "duration" | "upc" | "ean" | "copyrights" | "tracks" | "description" | "tags" | "mbid" | "about" | "country" | "format" | "catalog" | "directors" | "barcodes" | "brand" | "model" | "category";
 export interface DescriptionSection {readonly field: DescriptionSectionField; readonly label: string; readonly text: string}
 export interface DescriptionTrack {readonly title: string; readonly number?: number; readonly disc?: number; readonly durationMs?: number}
 export interface AlbumDescriptionData {
   readonly album: AlbumCandidate;
+  readonly preserveLongText?: boolean;
+  readonly discCount?: number;
+  readonly digitalPrice?: {readonly amount: number; readonly currency: string};
   readonly about?: string;
   readonly label?: string;
   readonly genres?: readonly string[];
@@ -24,8 +29,12 @@ export interface AlbumDescriptionData {
   readonly ean?: string | undefined;
   readonly copyrights?: readonly string[];
   readonly notes?: readonly string[];
+  readonly extraSections?: readonly DescriptionSection[];
+  readonly sourceCredit?: string;
 }
 export interface AlbumDescription {
+  readonly manualFields?: Readonly<Record<string, string>>;
+  readonly manualFieldNotes?: Readonly<Record<string, string>>;
   readonly service: MetadataServiceId;
   readonly albumId: string;
   readonly text: string;
@@ -86,6 +95,7 @@ function date(value: unknown): string | undefined {
 }
 export function validateDescriptionAlbum(value: unknown): AlbumCandidate {
   const album = object(value), service = album["service"], id = album["id"], artists = album["artists"];
+  if (service === "upcitemdb") return validateUpcitemdbCandidate(value);
   if(service === "lastfm") {try {lastfmDescription(value as AlbumCandidate);return structuredClone(value) as AlbumCandidate;}catch{invalid();}}
   if (!isMetadataService(service) || !isMetadataAlbumId(service, id) || !text(album["title"]) || !Array.isArray(artists) || !artists.length || artists.length > 100 ||
     !artists.every(raw => typeof object(raw)["id"] === "string" && Boolean((object(raw)["id"] as string).trim()) && text(object(raw)["name"])) || typeof album["url"] !== "string") invalid();
@@ -93,6 +103,7 @@ export function validateDescriptionAlbum(value: unknown): AlbumCandidate {
     const url = new URL(album["url"]);
     const valid = service === "spotify" ? url.origin === "https://open.spotify.com" && new RegExp(`^/(?:intl-[a-z]{2}/)?album/${id}/?$`).test(url.pathname)
       : service === "youtube-music" ? url.origin === "https://music.youtube.com" && url.pathname === `/browse/${id}`
+      : service === "discogs" ? url.origin === "https://www.discogs.com" && new RegExp(`^/release/${id}/?$`).test(url.pathname)
       : service === "deezer" ? url.origin === "https://www.deezer.com" && new RegExp(`^/(?:[a-z]{2}/)?album/${id}/?$`).test(url.pathname)
       : url.origin === "https://music.apple.com" && new RegExp(`^/br/album/(?:[^/]+/)?${id}/?$`).test(url.pathname);
     if (!valid || url.username || url.password || url.port || url.hash) invalid();
@@ -142,7 +153,13 @@ export function itunesDescription(source: AlbumCandidate, value: unknown): Album
   if (songs.some(raw => String(object(raw)["collectionId"]) !== source.id)) invalid();
   const genre = text(collection["primaryGenreName"]), count = integer(collection["trackCount"]);
   const copyright = text(collection["copyright"]);
-  return {album, ...(copyright ? {copyrights: [copyright]} : {}), ...(genre ? {genres: [genre]} : {}), tracks: songs.map(raw => {const item=object(raw);return track(item["trackName"],item["trackNumber"],item["discNumber"],item["trackTimeMillis"]);}),
+  const discCounts = songs.map(raw => integer(object(raw)["discCount"])).filter((count): count is number => count !== undefined && count > 0);
+  const discCount = discCounts.length && new Set(discCounts).size === 1 ? discCounts[0] : undefined;
+  const amount = collection["collectionPrice"];
+  const currency = text(collection["currency"]);
+  const digitalPrice = typeof amount === "number" && Number.isFinite(amount) && amount >= 0 && currency === "BRL"
+    ? {amount, currency} : undefined;
+  return {album, ...(discCount ? {discCount} : {}), ...(digitalPrice ? {digitalPrice} : {}), ...(copyright ? {copyrights: [copyright]} : {}), ...(genre ? {genres: [genre]} : {}), tracks: songs.map(raw => {const item=object(raw);return track(item["trackName"],item["trackNumber"],item["discNumber"],item["trackTimeMillis"]);}),
     ...(count !== undefined ? {trackCount: count} : {}), tracksComplete: songs.length < 200 && (count === undefined || count <= songs.length)};
 }
 export function spotifyDescription(source: AlbumCandidate, value: unknown): AlbumDescriptionData {
@@ -161,15 +178,36 @@ export function spotifyDescription(source: AlbumCandidate, value: unknown): Albu
     ...(count !== undefined ? {trackCount: count} : {}), tracksComplete: tracks.length <= 200 && !page["next"] && (count === undefined || count <= tracks.length)};
 }
 /** These sources already provide all fields used by their current description. */
-export function descriptionUsesDetails(service: string): boolean {return service !== "youtube-music" && service !== "lastfm";}
+export function descriptionUsesDetails(service: string): boolean {return service !== "youtube-music" && service !== "lastfm" && service !== "upcitemdb";}
 export function descriptionFromSearch(value: unknown): AlbumDescription | undefined {
   const album = object(value);
+  if (album["service"] === "upcitemdb") return upcitemdbDescription(value);
+  const cached = (value as AlbumCandidate | undefined)?.description;
+  if (cached && cached.service === album["service"] && cached.albumId === album["id"] && typeof cached.text === "string" &&
+    cached.text.trim() && cached.text.length <= DESCRIPTION_LIMIT && Array.isArray(cached.notes) && cached.notes.every(note => typeof note === "string")) {
+    return structuredClone(cached);
+  }
+  if (album["service"] === "discogs") {
+    const release = (value as AlbumCandidate).discogs;
+    return release?.detailsLoaded && release.id === album["id"] ? discogsDescription(release) : undefined;
+  }
   if(album["service"] === "lastfm")return lastfmDescription(value as AlbumCandidate);
   if (descriptionUsesDetails(String(album["service"]))) return undefined;
   const artists = album["artists"];
   if (!text(album["title"]) || !Array.isArray(artists) || !artists.length || !artists.every(artist => text(object(artist)["name"]))) return undefined;
   return formatAlbumDescription({album: validateDescriptionAlbum(value),
     notes: ["YouTube Music: descrição baseada somente nos dados disponíveis na busca; gravadora, gêneros e faixas não são fornecidos por esta integração."]});
+}
+
+function descriptionFooter(source: {service: string; url: string; sourceCredit?: string}): string {
+  return [`Fonte: ${streamingName(source.service)}`, source.sourceCredit, source.url].filter(Boolean).join("\n");
+}
+export function formatDescriptionText(sections: readonly DescriptionSection[], source: {service: string; url: string; sourceCredit?: string},
+  options: {preserveLongText?: boolean} = {}): string {
+  const body = sections.filter(section => section.text.trim()).map((section, index) =>
+    `${index && ["about", "tracks", "description"].includes(section.field) ? "\n" : ""}${section.text}`).join("\n");
+  const text = body + "\n\n" + descriptionFooter(source);
+  return options.preserveLongText ? text : descriptionText(text);
 }
 
 export function formatAlbumDescription(data: AlbumDescriptionData): AlbumDescription {
@@ -189,8 +227,10 @@ export function formatAlbumDescription(data: AlbumDescriptionData): AlbumDescrip
   if (data.upc) add("upc", "UPC", data.upc);
   if (data.ean && data.ean !== data.upc) add("ean", "EAN", data.ean);
   if (data.copyrights?.length) add("copyrights", "Direitos autorais", [...new Set(data.copyrights)].join("; "));
+  for (const section of data.extraSections ?? []) {lines.push(section.text); sections.push(section);}
   const notes = [...data.notes ?? []], tracks = [...data.tracks ?? []].sort((a,b)=>(a.disc ?? 0)-(b.disc ?? 0)||(a.number ?? 0)-(b.number ?? 0));
-  const footer = `Fonte: ${streamingName(album.service)}\n${album.url}`;
+  const source = {service: album.service, url: album.url, ...(data.sourceCredit ? {sourceCredit: data.sourceCredit} : {})};
+  const footer = descriptionFooter(source);
   if(data.about?.trim()) {const text=`Sobre o álbum:\n${data.about.trim()}`;lines.push("",text);sections.push({field:"about",label:"Sobre o álbum",text});}
   const trackStart = lines.length;
   let listedTracks = 0;
@@ -215,5 +255,27 @@ export function formatAlbumDescription(data: AlbumDescriptionData): AlbumDescrip
   if (data.label?.trim()) fields.push("label");
   if (data.genres?.some(genre => genre.trim())) fields.push("genres");
   if (listedTracks > 0 && data.tracksComplete === true && listedTracks === tracks.length) fields.push("tracks");
-  return {service: album.service as MetadataServiceId, albumId: album.id, text: descriptionText(lines.join("\n")), listedTracks, notes, fields, sections};
+  const manualFields: Record<string, string> = {};
+  const manualFieldNotes: Record<string, string> = {};
+  if (data.discCount && Number.isSafeInteger(data.discCount) && data.discCount > 0) {
+    manualFields["number_of_discs"] = String(data.discCount);
+    manualFieldNotes["number_of_discs"] = "Quantidade de discos da edição digital. Confira sua edição física.";
+  }
+  if (data.digitalPrice) {
+    manualFields["price"] = data.digitalPrice.amount.toFixed(2);
+    manualFieldNotes["price"] = `Preço da loja digital em ${data.digitalPrice.currency}. Confira o preço que deseja cadastrar.`;
+  }
+  if (data.label) manualFields["publisher"] = data.label;
+  const release = date(album.releaseDate)?.split("-") ?? [];
+  for (const [index, key] of ["publish_year", "publish_month", "publish_day"].entries()) {
+    if (release[index]) manualFields[key] = release[index]!;
+  }
+  for (const code of [data.ean, data.upc, album.ean, album.upc]) {
+    if (code && /^\d{13}$/.test(code)) manualFields["ean_isbn13"] ??= code;
+    if (code && /^\d{12}$/.test(code)) manualFields["upc_isbn10"] ??= code;
+  }
+  const durationMs = totalDuration(data);
+  if (durationMs && Math.round(durationMs / 60000) > 0) manualFields["length_of"] = String(Math.round(durationMs / 60000));
+  return {manualFields, manualFieldNotes, service: album.service as MetadataServiceId, albumId: album.id, text: formatDescriptionText(sections, source, {preserveLongText: Boolean(data.preserveLongText)}), listedTracks, notes, fields, sections,
+    ...(data.sourceCredit ? {attribution: {fields: sections.map(section => section.field), text: data.sourceCredit}} : {})};
 }
